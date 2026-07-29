@@ -1,0 +1,87 @@
+{
+  "project": "historical-asset-risk-engine",
+  "project_version": "0.1.0",
+  "git_commit": "5d189b528306b78b87970e4e83dc2b8dc7b279b3",
+  "execution_timestamp": "2026-01-01T00:00:00+00:00",
+  "fixture": {
+    "synthetic": true,
+    "generator": "tools/generate_synthetic_upstream_fixture.py"
+  },
+  "configuration": {
+    "provider": "synthetic-offline-fixture",
+    "tickers": [
+      "SPY",
+      "IEF",
+      "GLD"
+    ],
+    "start_date": "2007-01-01",
+    "end_date": "2026-01-01",
+    "rolling_window": 252
+  },
+  "estimation_conventions": {
+    "missing_data": {
+      "alignment": "complete_case_adjusted_prices",
+      "forward_fill": false,
+      "gap_spanning_return_policy": "fail"
+    }
+  },
+  "data_source": {
+    "provider": "synthetic-offline-fixture",
+    "source": "generated",
+    "acquired_at": "2026-01-01T00:00:00+00:00",
+    "actual_start_date": "2007-01-01",
+    "actual_end_date": "2025-12-31",
+    "observation_count": 4958,
+    "instruments": [
+      "SPY",
+      "IEF",
+      "GLD"
+    ],
+    "canonical_record_stage": "normalized_requested_in_range_pre_complete_case_alignment"
+  },
+  "dependency_versions": {},
+  "generated_artifacts": [
+    "data_quality_report.json",
+    "run_manifest.json",
+    "simple_returns.csv"
+  ],
+  "artifact_schemas": {
+    "data_quality_report.json": {
+      "schema_id": "historical-asset-risk/data-quality-report",
+      "schema_version": "1.experimental",
+      "units": "structured_counts_and_lineage"
+    },
+    "run_manifest.json": {
+      "schema_id": "historical-asset-risk/run-manifest",
+      "schema_version": "1.experimental",
+      "units": "structured_lineage"
+    },
+    "simple_returns.csv": {
+      "schema_id": "historical-asset-risk/simple-returns",
+      "schema_version": "1.experimental",
+      "units": "decimal_return_per_observation"
+    }
+  },
+  "consumer_compatibility": {
+    "package_version": "0.1.0",
+    "artifact_schemas": {
+      "data_quality_report.json": {
+        "schema_id": "historical-asset-risk/data-quality-report",
+        "schema_version": "1.experimental",
+        "units": "structured_counts_and_lineage"
+      },
+      "run_manifest.json": {
+        "schema_id": "historical-asset-risk/run-manifest",
+        "schema_version": "1.experimental",
+        "units": "structured_lineage"
+      },
+      "simple_returns.csv": {
+        "schema_id": "historical-asset-risk/simple-returns",
+        "schema_version": "1.experimental",
+        "units": "decimal_return_per_observation"
+      }
+    },
+    "fixture_identity": "market-risk-forecasting-synthetic-v1",
+    "contract_status": "experimental"
+  }
+}

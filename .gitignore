@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+.mypy_cache/
+.pytest_cache/
+.pytest_tmp/
+.ruff_cache/
+.venv/
+.idea/
+build/
+dist/
+outputs/
+tmp/
+data/upstream/
+docs/market-risk-forecasting-engine-implementation-spec.md

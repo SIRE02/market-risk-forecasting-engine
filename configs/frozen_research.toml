@@ -1,0 +1,51 @@
+[experiment]
+experiment_id = "risk-v01-frozen"
+input_run_dir = "data/upstream/hare-spy-ief-gld-2007-2025"
+output_dir = "outputs/risk-v01-frozen"
+random_seed = 42
+
+[upstream]
+project = "historical-asset-risk-engine"
+package_version = "0.1.0"
+simple_returns_schema_id = "historical-asset-risk/simple-returns"
+simple_returns_schema_version = "1.experimental"
+simple_returns_units = "decimal_return_per_observation"
+instruments = ["SPY", "IEF", "GLD"]
+
+[periods]
+development_start = "2007-01-01"
+development_end = "2014-12-31"
+validation_start = "2015-01-01"
+validation_end = "2019-12-31"
+test_start = "2020-01-01"
+test_end = "2025-12-31"
+
+[portfolio_proxy]
+series_id = "MIX_60_30_10"
+SPY = 0.60
+IEF = 0.30
+GLD = 0.10
+
+[historical]
+variance_window = 252
+var_window = 500
+quantile_method = "linear"
+
+[ewma]
+lambda = 0.94
+initialization_window = 252
+
+[garch]
+estimation_window = 1250
+refit_every_origins = 20
+input_scale = 100.0
+retry_count = 1
+stationarity_tolerance = 1e-8
+
+[evaluation]
+var_confidence_levels = [0.95, 0.99]
+primary_var_confidence = 0.95
+bootstrap_block_length = 20
+bootstrap_resamples = 2000
+bootstrap_confidence = 0.95
+

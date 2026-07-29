@@ -1,0 +1,53 @@
+{
+  "fixture": {
+    "synthetic": true,
+    "generator": "tools/generate_synthetic_upstream_fixture.py"
+  },
+  "requested_instruments": [
+    "SPY",
+    "IEF",
+    "GLD"
+  ],
+  "returned_instruments": [
+    "SPY",
+    "IEF",
+    "GLD"
+  ],
+  "source_row_count": 14874,
+  "invalid_date_count": 0,
+  "duplicate_date_instrument_rows_removed": 0,
+  "source_missing_adjusted_close_values": 0,
+  "missing_adjusted_close_values": 0,
+  "invalid_price_values_removed": 0,
+  "union_date_count_before_alignment": 4958,
+  "common_date_count_after_alignment": 4958,
+  "common_history_rows_removed": 0,
+  "first_common_date": "2007-01-01",
+  "last_common_date": "2025-12-31",
+  "instruments": [
+    {
+      "ticker": "SPY",
+      "rows_after_date_filter": 4958,
+      "valid_observations_before_alignment": 4958,
+      "missing_values_before_alignment": 0,
+      "valid_observations_after_alignment": 4958,
+      "common_history_reduction": 0
+    },
+    {
+      "ticker": "IEF",
+      "rows_after_date_filter": 4958,
+      "valid_observations_before_alignment": 4958,
+      "missing_values_before_alignment": 0,
+      "valid_observations_after_alignment": 4958,
+      "common_history_reduction": 0
+    },
+    {
+      "ticker": "GLD",
+      "rows_after_date_filter": 4958,
+      "valid_observations_before_alignment": 4958,
+      "missing_values_before_alignment": 0,
+      "valid_observations_after_alignment": 4958,
+      "common_history_reduction": 0
+    }
+  ]
+}
