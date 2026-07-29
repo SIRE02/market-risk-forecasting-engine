@@ -404,8 +404,18 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             garch_raw, "stationarity_tolerance", "garch", minimum=0.0
         ),
     )
-    if garch.retry_count != 1:
-        raise _fail("garch.retry_count must be exactly 1 in v0.1.")
+    if (
+        garch.estimation_window != 1250
+        or garch.refit_every_origins != 20
+        or garch.input_scale != 100.0
+        or garch.retry_count != 1
+        or garch.stationarity_tolerance != 1e-8
+    ):
+        raise _fail(
+            "v0.1 requires garch.estimation_window=1250, "
+            "refit_every_origins=20, input_scale=100.0, retry_count=1, "
+            "and stationarity_tolerance=1e-8."
+        )
 
     evaluation_raw = _section(
         raw,

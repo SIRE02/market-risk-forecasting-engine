@@ -12,6 +12,15 @@ from market_risk_forecasting.models.ewma import (
     EwmaModel,
     EwmaState,
 )
+from market_risk_forecasting.models.garch import (
+    GAUSSIAN_GARCH_MODEL_ID,
+    STUDENT_T_GARCH_MODEL_ID,
+    GarchFitOutcome,
+    GarchForecast,
+    GarchModel,
+    GarchParameters,
+    GarchState,
+)
 from market_risk_forecasting.models.historical import (
     HISTORICAL_SIMULATION_MODEL_ID,
     HISTORICAL_VARIANCE_MODEL_ID,
@@ -28,6 +37,13 @@ __all__ = [
     "EwmaForecast",
     "EwmaModel",
     "EwmaState",
+    "GAUSSIAN_GARCH_MODEL_ID",
+    "STUDENT_T_GARCH_MODEL_ID",
+    "GarchFitOutcome",
+    "GarchForecast",
+    "GarchModel",
+    "GarchParameters",
+    "GarchState",
     "FitResult",
     "ForecastResult",
     "HistoricalSimulationForecast",

@@ -11,6 +11,7 @@ from market_risk_forecasting.windows import (
     classify_target_date,
     iter_expanding_forecast_windows,
     iter_forecast_windows,
+    iter_refit_forecast_windows,
     validate_canonical_index,
 )
 
@@ -148,6 +149,33 @@ def test_expanding_windows_keep_the_initial_training_start(
     assert first_validation.target_date == pd.Timestamp("2015-01-01")
     assert first_validation.train_start == index[0]
     assert first_validation.train_observation_count == 12
+
+
+def test_refit_windows_follow_eligible_origin_position(
+    periods: PeriodConfig,
+) -> None:
+    index = pd.date_range("2010-01-01", periods=18, freq="D")
+
+    windows = list(
+        iter_refit_forecast_windows(
+            index=index,
+            series_id="SPY",
+            model_id="garch_1_1_gaussian",
+            training_window=5,
+            refit_every_origins=4,
+            periods=periods,
+        )
+    )
+
+    assert [
+        position for position, window in enumerate(windows) if window.scheduled_refit
+    ] == [
+        0,
+        4,
+        8,
+        12,
+    ]
+    assert all(window.train_observation_count == 5 for window in windows)
 
 
 def test_duplicate_and_unsorted_dates_fail() -> None:

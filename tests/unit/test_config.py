@@ -98,3 +98,15 @@ def test_nonfrozen_ewma_parameters_fail(project_root: Path, tmp_path: Path) -> N
 
     with pytest.raises(ConfigInvalidError, match=r"ewma\.lambda=0\.94"):
         load_config(path)
+
+
+def test_nonfrozen_garch_protocol_fails(project_root: Path, tmp_path: Path) -> None:
+    source = (project_root / "config.example.toml").read_text(encoding="utf-8")
+    path = tmp_path / "garch.toml"
+    path.write_text(
+        source.replace("refit_every_origins = 20", "refit_every_origins = 10"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigInvalidError, match="refit_every_origins=20"):
+        load_config(path)

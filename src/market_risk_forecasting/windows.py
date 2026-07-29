@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 import pandas as pd
@@ -156,11 +156,39 @@ def iter_expanding_forecast_windows(
         )
 
 
+def iter_refit_forecast_windows(
+    *,
+    index: pd.DatetimeIndex,
+    series_id: str,
+    model_id: str,
+    training_window: int,
+    refit_every_origins: int,
+    periods: PeriodConfig,
+) -> Iterator[ForecastWindow]:
+    """Yield rolling windows with a position-based deterministic refit schedule."""
+    if refit_every_origins < 1:
+        raise WindowAlignmentError("Refit frequency must be at least one origin.")
+    for eligible_position, window in enumerate(
+        iter_forecast_windows(
+            index=index,
+            series_id=series_id,
+            model_id=model_id,
+            training_window=training_window,
+            periods=periods,
+        )
+    ):
+        yield replace(
+            window,
+            scheduled_refit=eligible_position % refit_every_origins == 0,
+        )
+
+
 __all__ = [
     "ExperimentPeriod",
     "ForecastWindow",
     "classify_target_date",
     "iter_expanding_forecast_windows",
     "iter_forecast_windows",
+    "iter_refit_forecast_windows",
     "validate_canonical_index",
 ]

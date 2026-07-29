@@ -11,7 +11,7 @@ not live or prospective forecasting.
 
 ## Current implementation status
 
-Phase 3 is the current implementation boundary. It provides:
+Phase 4 is the current implementation boundary. It provides:
 
 - installable package and CLI entry point;
 - strict TOML configuration parsing;
@@ -33,14 +33,21 @@ Phase 3 is the current implementation boundary. It provides:
 - fixed lambda 0.94 recursion without split or calendar resets;
 - zero-mean Gaussian 95% and 99% EWMA VaR in decimal-return units;
 - one deterministic EWMA fit identity and diagnostic record per series;
-- combined benchmark/EWMA artifacts on the common forecast panel;
+- zero-mean Gaussian and Student-t GARCH(1,1) candidates;
+- exact rolling 1,250-return estimation with deterministic 20-origin refits;
+- percent-scale fitting with all public forecasts converted to decimal units;
+- fixed-parameter state updates between scheduled refits;
+- one frozen retry policy and variance-standardized Student-t VaR;
+- convergence, parameter, persistence, retry, scaling, and runtime diagnostics;
+- typed fit failures that invalidate state until the next scheduled refit;
+- combined benchmark and candidate artifacts on common forecast dates;
 - deterministic benchmark forecast IDs and stable CSV/Parquet artifacts;
 - typed benchmark failures without clipping or model substitution;
 - frozen protocol documentation and CI.
 
-GARCH candidate models are intentionally deferred to a later phase.
-The public `run` command remains reserved until it can satisfy the complete
-experiment-artifact contract.
+Evaluation, inference, and reporting are intentionally deferred to later
+phases. The public `run` command remains reserved until it can satisfy the
+complete experiment-artifact contract.
 
 ## Development
 

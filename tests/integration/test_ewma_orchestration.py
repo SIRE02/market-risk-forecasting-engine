@@ -17,7 +17,7 @@ from market_risk_forecasting.orchestration import (
     FORECAST_COLUMNS,
     REALIZATION_COLUMNS,
     persist_available_model_artifacts,
-    run_available_models,
+    run_benchmarks_and_ewma,
     run_ewma_candidate,
 )
 from market_risk_forecasting.upstream import load_upstream_run
@@ -40,7 +40,7 @@ def test_ewma_runs_on_the_historical_variance_common_panel(
 ) -> None:
     config, dataset, checksum = _fixture_inputs(project_root)
 
-    artifacts = run_available_models(
+    artifacts = run_benchmarks_and_ewma(
         dataset=dataset,
         config=config,
         upstream_simple_return_checksum=checksum,
@@ -111,7 +111,7 @@ def test_available_model_artifacts_round_trip(
     tmp_path: Path,
 ) -> None:
     config, dataset, checksum = _fixture_inputs(project_root)
-    artifacts = run_available_models(
+    artifacts = run_benchmarks_and_ewma(
         dataset=dataset,
         config=config,
         upstream_simple_return_checksum=checksum,

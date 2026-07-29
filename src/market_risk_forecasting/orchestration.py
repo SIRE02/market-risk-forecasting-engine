@@ -22,6 +22,14 @@ from market_risk_forecasting.errors import (
 )
 from market_risk_forecasting.identifiers import make_fit_id, make_forecast_id
 from market_risk_forecasting.models.ewma import EWMA_MODEL_ID, EwmaModel
+from market_risk_forecasting.models.garch import (
+    GAUSSIAN_GARCH_MODEL_ID,
+    STUDENT_T_GARCH_MODEL_ID,
+    GarchFitOutcome,
+    GarchForecast,
+    GarchModel,
+    GarchState,
+)
 from market_risk_forecasting.models.historical import (
     HISTORICAL_SIMULATION_MODEL_ID,
     HISTORICAL_VARIANCE_MODEL_ID,
@@ -33,6 +41,7 @@ from market_risk_forecasting.windows import (
     classify_target_date,
     iter_expanding_forecast_windows,
     iter_forecast_windows,
+    iter_refit_forecast_windows,
     validate_canonical_index,
 )
 
@@ -149,6 +158,47 @@ def _all_ewma_windows(
                 periods=config.periods,
             )
         )
+    return result
+
+
+def _garch_models(config: ForecastConfig) -> tuple[GarchModel, GarchModel]:
+    return (
+        GarchModel(
+            distribution="gaussian",
+            estimation_window=config.garch.estimation_window,
+            input_scale=config.garch.input_scale,
+            retry_count=config.garch.retry_count,
+            stationarity_tolerance=config.garch.stationarity_tolerance,
+        ),
+        GarchModel(
+            distribution="student_t",
+            estimation_window=config.garch.estimation_window,
+            input_scale=config.garch.input_scale,
+            retry_count=config.garch.retry_count,
+            stationarity_tolerance=config.garch.stationarity_tolerance,
+        ),
+    )
+
+
+def _all_garch_windows(
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+) -> list[ForecastWindow]:
+    index = pd.DatetimeIndex(dataset.returns.index)
+    validate_canonical_index(index)
+    result: list[ForecastWindow] = []
+    for series_id in dataset.series_order:
+        for model in _garch_models(config):
+            result.extend(
+                iter_refit_forecast_windows(
+                    index=index,
+                    series_id=series_id,
+                    model_id=model.model_id,
+                    training_window=config.garch.estimation_window,
+                    refit_every_origins=config.garch.refit_every_origins,
+                    periods=config.periods,
+                )
+            )
     return result
 
 
@@ -423,6 +473,172 @@ def _ewma_forecast_frame(
     )
 
 
+def _garch_forecast_values(forecast: GarchForecast) -> dict[str, Any]:
+    return {
+        "variance": forecast.variance,
+        "volatility": forecast.volatility,
+        "return_quantile_0_05": forecast.return_quantile_0_05,
+        "var_0_95": forecast.var_0_95,
+        "return_quantile_0_01": forecast.return_quantile_0_01,
+        "var_0_99": forecast.var_0_99,
+        "status": "ok",
+        "error_code": None,
+    }
+
+
+def _failed_forecast_values(error_code: str) -> dict[str, Any]:
+    return {
+        "variance": None,
+        "volatility": None,
+        "return_quantile_0_05": None,
+        "var_0_95": None,
+        "return_quantile_0_01": None,
+        "var_0_99": None,
+        "status": "failed",
+        "error_code": error_code,
+    }
+
+
+def _garch_diagnostic_record(
+    *,
+    fit_id: str,
+    window: ForecastWindow,
+    outcome: GarchFitOutcome,
+) -> dict[str, Any]:
+    parameters = outcome.parameters
+    return {
+        "fit_id": fit_id,
+        "series_id": window.series_id,
+        "model_id": window.model_id,
+        "fit_origin": window.forecast_origin,
+        "train_start": window.train_start,
+        "train_end": window.train_end,
+        "observation_count": window.train_observation_count,
+        "omega": parameters.omega if parameters is not None else None,
+        "alpha": parameters.alpha if parameters is not None else None,
+        "beta": parameters.beta if parameters is not None else None,
+        "degrees_of_freedom": (
+            parameters.degrees_of_freedom if parameters is not None else None
+        ),
+        "parameter_persistence": (
+            parameters.persistence if parameters is not None else None
+        ),
+        "converged": outcome.converged,
+        "optimizer_status": outcome.optimizer_status,
+        "retry_used": outcome.retry_used,
+        "runtime_seconds": outcome.runtime_seconds,
+        "scaling_factor": outcome.scaling_factor,
+        "warning_codes": json.dumps(list(outcome.warning_codes)),
+    }
+
+
+def _garch_forecast_frames(
+    *,
+    windows: list[ForecastWindow],
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    windows_by_series_model = {
+        (series_id, model.model_id): [
+            window
+            for window in windows
+            if window.series_id == series_id and window.model_id == model.model_id
+        ]
+        for series_id in dataset.series_order
+        for model in _garch_models(config)
+    }
+    forecast_rows: list[dict[str, Any]] = []
+    diagnostic_rows: list[dict[str, Any]] = []
+
+    for series_id in dataset.series_order:
+        series = dataset.returns[series_id]
+        for model in _garch_models(config):
+            active_state: GarchState | None = None
+            active_fit_id: str | None = None
+            active_error_code = "MODEL_FIT_FAILED"
+            for window in windows_by_series_model[(series_id, model.model_id)]:
+                if window.scheduled_refit:
+                    active_fit_id = make_fit_id(
+                        experiment_id=config.experiment.experiment_id,
+                        series_id=series_id,
+                        model_id=model.model_id,
+                        fit_origin=window.forecast_origin,
+                        train_start=window.train_start,
+                        train_end=window.train_end,
+                        upstream_simple_return_checksum=(
+                            upstream_simple_return_checksum
+                        ),
+                        package_version=__version__,
+                    )
+                    training = series.iloc[
+                        window.origin_position
+                        - config.garch.estimation_window
+                        + 1 : window.origin_position + 1
+                    ]
+                    outcome = model.fit(training)
+                    diagnostic_rows.append(
+                        _garch_diagnostic_record(
+                            fit_id=active_fit_id,
+                            window=window,
+                            outcome=outcome,
+                        )
+                    )
+                    active_state = outcome.state
+                    active_error_code = (
+                        outcome.error_code
+                        if outcome.error_code is not None
+                        else "MODEL_FIT_FAILED"
+                    )
+
+                if active_fit_id is None:
+                    raise WindowAlignmentError(
+                        "The first eligible GARCH origin was not a scheduled refit."
+                    )
+
+                if active_state is None:
+                    values = _failed_forecast_values(active_error_code)
+                else:
+                    try:
+                        active_state, forecast = model.advance(
+                            active_state,
+                            float(series.iloc[window.origin_position]),
+                        )
+                        values = _garch_forecast_values(forecast)
+                    except MarketRiskForecastingError as exc:
+                        active_state = None
+                        active_error_code = exc.code.value
+                        values = _failed_forecast_values(active_error_code)
+
+                forecast_id = make_forecast_id(
+                    experiment_id=config.experiment.experiment_id,
+                    fit_id=active_fit_id,
+                    series_id=series_id,
+                    model_id=model.model_id,
+                    forecast_origin=window.forecast_origin,
+                    target_date=window.target_date,
+                )
+                forecast_rows.append(
+                    {
+                        "experiment_id": config.experiment.experiment_id,
+                        "forecast_id": forecast_id,
+                        "series_id": series_id,
+                        "model_id": model.model_id,
+                        "model_version": __version__,
+                        "fit_id": active_fit_id,
+                        "forecast_origin": window.forecast_origin,
+                        "target_date": window.target_date,
+                        **values,
+                        "warning_codes": json.dumps([]),
+                    }
+                )
+
+    return (
+        pd.DataFrame(forecast_rows, columns=FORECAST_COLUMNS),
+        pd.DataFrame(diagnostic_rows, columns=FIT_DIAGNOSTIC_COLUMNS),
+    )
+
+
 def _validate_benchmark_artifacts(artifacts: BenchmarkArtifacts) -> None:
     windows = artifacts.experiment_windows
     realizations = artifacts.realizations
@@ -460,6 +676,24 @@ def _validate_benchmark_artifacts(artifacts: BenchmarkArtifacts) -> None:
     )
     if not forecast_keys.issubset(realization_keys):
         raise WindowAlignmentError("A forecast has no matching realization.")
+    if diagnostics["fit_id"].duplicated().any():
+        raise WindowAlignmentError("Fit diagnostic identifiers are not unique.")
+    candidate_model_ids = {
+        EWMA_MODEL_ID,
+        GAUSSIAN_GARCH_MODEL_ID,
+        STUDENT_T_GARCH_MODEL_ID,
+    }
+    candidate_fit_ids = set(
+        forecasts.loc[
+            forecasts["model_id"].isin(candidate_model_ids),
+            "fit_id",
+        ]
+    )
+    diagnostic_fit_ids = set(diagnostics["fit_id"])
+    if candidate_fit_ids != diagnostic_fit_ids:
+        raise WindowAlignmentError(
+            "Candidate forecast and fit-diagnostic identifiers do not reconcile."
+        )
 
 
 def run_historical_benchmarks(
@@ -515,13 +749,13 @@ def run_ewma_candidate(
     return artifacts
 
 
-def run_available_models(
+def run_benchmarks_and_ewma(
     *,
     dataset: ResearchDataset,
     config: ForecastConfig,
     upstream_simple_return_checksum: str,
 ) -> BenchmarkArtifacts:
-    """Run every model implemented through the current package boundary."""
+    """Run the permanent benchmarks and continuous EWMA candidate."""
     benchmarks = run_historical_benchmarks(
         dataset=dataset,
         config=config,
@@ -543,6 +777,78 @@ def run_available_models(
             ignore_index=True,
         ),
         fit_diagnostics=ewma.fit_diagnostics.copy(),
+    )
+    _validate_benchmark_artifacts(artifacts)
+    return artifacts
+
+
+def run_garch_candidates(
+    *,
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> BenchmarkArtifacts:
+    """Run both scheduled GARCH candidates with typed failure preservation."""
+    windows = _all_garch_windows(dataset, config)
+    forecasts, diagnostics = _garch_forecast_frames(
+        windows=windows,
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    artifacts = BenchmarkArtifacts(
+        experiment_windows=pd.DataFrame(
+            [window.to_record() for window in windows],
+            columns=EXPERIMENT_WINDOW_COLUMNS,
+        ),
+        realizations=_realization_frame(dataset, config),
+        forecasts=forecasts,
+        fit_diagnostics=diagnostics,
+    )
+    _validate_benchmark_artifacts(artifacts)
+    return artifacts
+
+
+def run_available_models(
+    *,
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> BenchmarkArtifacts:
+    """Run every benchmark and candidate implemented through this boundary."""
+    benchmarks_and_ewma = run_benchmarks_and_ewma(
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    garch = run_garch_candidates(
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    artifacts = BenchmarkArtifacts(
+        experiment_windows=pd.concat(
+            [
+                benchmarks_and_ewma.experiment_windows,
+                garch.experiment_windows,
+            ],
+            ignore_index=True,
+        ),
+        realizations=benchmarks_and_ewma.realizations.copy(),
+        forecasts=pd.concat(
+            [benchmarks_and_ewma.forecasts, garch.forecasts],
+            ignore_index=True,
+        ),
+        fit_diagnostics=pd.concat(
+            [
+                frame.dropna(axis="columns", how="all")
+                for frame in (
+                    benchmarks_and_ewma.fit_diagnostics,
+                    garch.fit_diagnostics,
+                )
+            ],
+            ignore_index=True,
+        ).reindex(columns=FIT_DIAGNOSTIC_COLUMNS),
     )
     _validate_benchmark_artifacts(artifacts)
     return artifacts
@@ -631,6 +937,8 @@ __all__ = [
     "persist_benchmark_artifacts",
     "persist_available_model_artifacts",
     "run_available_models",
+    "run_benchmarks_and_ewma",
     "run_ewma_candidate",
+    "run_garch_candidates",
     "run_historical_benchmarks",
 ]

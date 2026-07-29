@@ -40,6 +40,22 @@ conditional mean, standard-normal 5% and 1% quantiles convert the variance
 forecast to return quantiles and positive-loss VaR. All public values remain
 in decimal-return units.
 
+The Gaussian and Student-t candidates use zero-mean GARCH(1,1) variance
+recursions. They fit exactly 1,250 returns at the first eligible origin and
+every twentieth subsequent origin, multiplying decimal returns by 100 only
+during estimation. Between refits, fitted parameters remain fixed while each
+new origin return advances the conditional variance state. Public variance,
+volatility, quantiles, and VaR are converted back to decimal units.
+
+Each scheduled fit gets the package-default optimizer attempt and at most one
+retry using the frozen starting values. Fits must have positive omega,
+nonnegative alpha and beta, and persistence below one outside the declared
+tolerance. Student-t degrees of freedom must exceed two, and its quantiles are
+standardized to unit variance. A failed scheduled fit invalidates the active
+state: forecasts remain failed until the next scheduled attempt, and stale
+parameters are never reused. Every scheduled attempt is retained in fit
+diagnostics.
+
 Window records are classified as development, validation, or test from
 `target_date`, never from `forecast_origin`. Realization records begin at the
 first 252-observation benchmark origin, while the 500-observation benchmark
