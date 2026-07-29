@@ -113,10 +113,54 @@ def iter_forecast_windows(
         )
 
 
+def iter_expanding_forecast_windows(
+    *,
+    index: pd.DatetimeIndex,
+    series_id: str,
+    model_id: str,
+    initial_observations: int,
+    periods: PeriodConfig,
+) -> Iterator[ForecastWindow]:
+    """Yield continuous recursive windows initialized once from early history."""
+    validate_canonical_index(index)
+    if initial_observations < 2:
+        raise WindowAlignmentError(
+            "Recursive initialization requires at least 2 observations."
+        )
+    if len(index) <= initial_observations:
+        return
+
+    for origin_position in range(initial_observations - 1, len(index) - 1):
+        target_position = origin_position + 1
+        origin = pd.Timestamp(index[origin_position])
+        target = pd.Timestamp(index[target_position])
+        if origin >= target:
+            raise WindowAlignmentError(
+                "Every forecast origin must strictly precede its target."
+            )
+        period = classify_target_date(target, periods)
+        if period is None:
+            continue
+        yield ForecastWindow(
+            series_id=series_id,
+            model_id=model_id,
+            forecast_origin=origin,
+            target_date=target,
+            train_start=pd.Timestamp(index[0]),
+            train_end=origin,
+            train_observation_count=origin_position + 1,
+            period=period,
+            scheduled_refit=False,
+            origin_position=origin_position,
+            target_position=target_position,
+        )
+
+
 __all__ = [
     "ExperimentPeriod",
     "ForecastWindow",
     "classify_target_date",
+    "iter_expanding_forecast_windows",
     "iter_forecast_windows",
     "validate_canonical_index",
 ]

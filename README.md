@@ -11,7 +11,7 @@ not live or prospective forecasting.
 
 ## Current implementation status
 
-Phase 2 is the current implementation boundary. It provides:
+Phase 3 is the current implementation boundary. It provides:
 
 - installable package and CLI entry point;
 - strict TOML configuration parsing;
@@ -29,11 +29,16 @@ Phase 2 is the current implementation boundary. It provides:
 - realization records with return, squared-return proxy, and loss;
 - rolling 252-observation sample-variance forecasts with `ddof=1`;
 - 500-observation linear historical-simulation quantiles and positive-loss VaR;
+- continuous EWMA variance initialized once from the first 252 returns;
+- fixed lambda 0.94 recursion without split or calendar resets;
+- zero-mean Gaussian 95% and 99% EWMA VaR in decimal-return units;
+- one deterministic EWMA fit identity and diagnostic record per series;
+- combined benchmark/EWMA artifacts on the common forecast panel;
 - deterministic benchmark forecast IDs and stable CSV/Parquet artifacts;
 - typed benchmark failures without clipping or model substitution;
 - frozen protocol documentation and CI.
 
-EWMA and GARCH candidate models are intentionally deferred to later phases.
+GARCH candidate models are intentionally deferred to a later phase.
 The public `run` command remains reserved until it can satisfy the complete
 experiment-artifact contract.
 

@@ -21,6 +21,7 @@ from market_risk_forecasting.errors import (
     WindowAlignmentError,
 )
 from market_risk_forecasting.identifiers import make_fit_id, make_forecast_id
+from market_risk_forecasting.models.ewma import EWMA_MODEL_ID, EwmaModel
 from market_risk_forecasting.models.historical import (
     HISTORICAL_SIMULATION_MODEL_ID,
     HISTORICAL_VARIANCE_MODEL_ID,
@@ -30,6 +31,7 @@ from market_risk_forecasting.models.historical import (
 from market_risk_forecasting.windows import (
     ForecastWindow,
     classify_target_date,
+    iter_expanding_forecast_windows,
     iter_forecast_windows,
     validate_canonical_index,
 )
@@ -73,15 +75,36 @@ FORECAST_COLUMNS = (
     "error_code",
     "warning_codes",
 )
+FIT_DIAGNOSTIC_COLUMNS = (
+    "fit_id",
+    "series_id",
+    "model_id",
+    "fit_origin",
+    "train_start",
+    "train_end",
+    "observation_count",
+    "omega",
+    "alpha",
+    "beta",
+    "degrees_of_freedom",
+    "parameter_persistence",
+    "converged",
+    "optimizer_status",
+    "retry_used",
+    "runtime_seconds",
+    "scaling_factor",
+    "warning_codes",
+)
 
 
 @dataclass(frozen=True)
 class BenchmarkArtifacts:
-    """Phase 2 in-memory artifacts with stable public schemas."""
+    """In-memory forecast artifacts with stable public schemas."""
 
     experiment_windows: pd.DataFrame
     realizations: pd.DataFrame
     forecasts: pd.DataFrame
+    fit_diagnostics: pd.DataFrame
 
 
 def _all_benchmark_windows(
@@ -106,6 +129,26 @@ def _all_benchmark_windows(
                     periods=config.periods,
                 )
             )
+    return result
+
+
+def _all_ewma_windows(
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+) -> list[ForecastWindow]:
+    index = pd.DatetimeIndex(dataset.returns.index)
+    validate_canonical_index(index)
+    result: list[ForecastWindow] = []
+    for series_id in dataset.series_order:
+        result.extend(
+            iter_expanding_forecast_windows(
+                index=index,
+                series_id=series_id,
+                model_id=EWMA_MODEL_ID,
+                initial_observations=config.ewma.initialization_window,
+                periods=config.periods,
+            )
+        )
     return result
 
 
@@ -199,6 +242,31 @@ def _forecast_values(
                 "status": "ok",
                 "error_code": None,
             }
+        if window.model_id == EWMA_MODEL_ID:
+            numeric = {
+                name: float(values[name])
+                for name in (
+                    "variance",
+                    "volatility",
+                    "return_quantile_0_05",
+                    "var_0_95",
+                    "return_quantile_0_01",
+                    "var_0_99",
+                )
+            }
+            if not all(math.isfinite(value) for value in numeric.values()):
+                raise NonfiniteVarianceError(
+                    "EWMA forecast contains non-finite values."
+                )
+            if numeric["variance"] <= 0.0:
+                raise NonpositiveVarianceError(
+                    "EWMA variance is not strictly positive."
+                )
+            return {
+                **numeric,
+                "status": "ok",
+                "error_code": None,
+            }
         raise WindowAlignmentError(f"Unknown benchmark model {window.model_id!r}.")
     except MarketRiskForecastingError as exc:
         return _failed_values(exc)
@@ -265,16 +333,109 @@ def _forecast_frame(
     return pd.DataFrame(rows, columns=FORECAST_COLUMNS)
 
 
+def _ewma_forecast_frame(
+    *,
+    windows: list[ForecastWindow],
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    model = EwmaModel(
+        lambda_=config.ewma.lambda_,
+        initialization_window=config.ewma.initialization_window,
+    )
+    forecast_paths = {
+        (series_id, model.model_id): model.forecast_path(dataset.returns[series_id])
+        for series_id in dataset.series_order
+    }
+    first_windows = {
+        series_id: next(window for window in windows if window.series_id == series_id)
+        for series_id in dataset.series_order
+    }
+    fit_ids = {
+        series_id: make_fit_id(
+            experiment_id=config.experiment.experiment_id,
+            series_id=series_id,
+            model_id=model.model_id,
+            fit_origin=window.forecast_origin,
+            train_start=window.train_start,
+            train_end=window.train_end,
+            upstream_simple_return_checksum=upstream_simple_return_checksum,
+            package_version=__version__,
+        )
+        for series_id, window in first_windows.items()
+    }
+    forecast_rows: list[dict[str, Any]] = []
+    for window in windows:
+        fit_id = fit_ids[window.series_id]
+        forecast_id = make_forecast_id(
+            experiment_id=config.experiment.experiment_id,
+            fit_id=fit_id,
+            series_id=window.series_id,
+            model_id=window.model_id,
+            forecast_origin=window.forecast_origin,
+            target_date=window.target_date,
+        )
+        forecast_rows.append(
+            {
+                "experiment_id": config.experiment.experiment_id,
+                "forecast_id": forecast_id,
+                "series_id": window.series_id,
+                "model_id": window.model_id,
+                "model_version": __version__,
+                "fit_id": fit_id,
+                "forecast_origin": window.forecast_origin,
+                "target_date": window.target_date,
+                **_forecast_values(
+                    window=window,
+                    forecast_paths=forecast_paths,
+                ),
+                "warning_codes": json.dumps([]),
+            }
+        )
+
+    diagnostic_rows = [
+        {
+            "fit_id": fit_ids[series_id],
+            "series_id": series_id,
+            "model_id": model.model_id,
+            "fit_origin": window.forecast_origin,
+            "train_start": window.train_start,
+            "train_end": window.train_end,
+            "observation_count": config.ewma.initialization_window,
+            "omega": None,
+            "alpha": None,
+            "beta": None,
+            "degrees_of_freedom": None,
+            "parameter_persistence": config.ewma.lambda_,
+            "converged": True,
+            "optimizer_status": "not_applicable_fixed_parameter",
+            "retry_used": False,
+            "runtime_seconds": 0.0,
+            "scaling_factor": 1.0,
+            "warning_codes": json.dumps([]),
+        }
+        for series_id, window in first_windows.items()
+    ]
+    return (
+        pd.DataFrame(forecast_rows, columns=FORECAST_COLUMNS),
+        pd.DataFrame(diagnostic_rows, columns=FIT_DIAGNOSTIC_COLUMNS),
+    )
+
+
 def _validate_benchmark_artifacts(artifacts: BenchmarkArtifacts) -> None:
     windows = artifacts.experiment_windows
     realizations = artifacts.realizations
     forecasts = artifacts.forecasts
+    diagnostics = artifacts.fit_diagnostics
     if tuple(windows.columns) != EXPERIMENT_WINDOW_COLUMNS:
         raise WindowAlignmentError("Experiment-window schema is invalid.")
     if tuple(realizations.columns) != REALIZATION_COLUMNS:
         raise WindowAlignmentError("Realization schema is invalid.")
     if tuple(forecasts.columns) != FORECAST_COLUMNS:
         raise WindowAlignmentError("Forecast schema is invalid.")
+    if tuple(diagnostics.columns) != FIT_DIAGNOSTIC_COLUMNS:
+        raise WindowAlignmentError("Fit-diagnostic schema is invalid.")
     if not (windows["forecast_origin"] < windows["target_date"]).all():
         raise WindowAlignmentError("A forecast origin does not precede its target.")
     if not (windows["train_end"] == windows["forecast_origin"]).all():
@@ -321,6 +482,67 @@ def run_historical_benchmarks(
             config=config,
             upstream_simple_return_checksum=upstream_simple_return_checksum,
         ),
+        fit_diagnostics=pd.DataFrame(columns=FIT_DIAGNOSTIC_COLUMNS),
+    )
+    _validate_benchmark_artifacts(artifacts)
+    return artifacts
+
+
+def run_ewma_candidate(
+    *,
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> BenchmarkArtifacts:
+    """Generate the continuous EWMA candidate and initialization diagnostics."""
+    windows = _all_ewma_windows(dataset, config)
+    forecasts, diagnostics = _ewma_forecast_frame(
+        windows=windows,
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    artifacts = BenchmarkArtifacts(
+        experiment_windows=pd.DataFrame(
+            [window.to_record() for window in windows],
+            columns=EXPERIMENT_WINDOW_COLUMNS,
+        ),
+        realizations=_realization_frame(dataset, config),
+        forecasts=forecasts,
+        fit_diagnostics=diagnostics,
+    )
+    _validate_benchmark_artifacts(artifacts)
+    return artifacts
+
+
+def run_available_models(
+    *,
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> BenchmarkArtifacts:
+    """Run every model implemented through the current package boundary."""
+    benchmarks = run_historical_benchmarks(
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    ewma = run_ewma_candidate(
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    artifacts = BenchmarkArtifacts(
+        experiment_windows=pd.concat(
+            [benchmarks.experiment_windows, ewma.experiment_windows],
+            ignore_index=True,
+        ),
+        realizations=benchmarks.realizations.copy(),
+        forecasts=pd.concat(
+            [benchmarks.forecasts, ewma.forecasts],
+            ignore_index=True,
+        ),
+        fit_diagnostics=ewma.fit_diagnostics.copy(),
     )
     _validate_benchmark_artifacts(artifacts)
     return artifacts
@@ -360,11 +582,55 @@ def persist_benchmark_artifacts(
     )
 
 
+def persist_available_model_artifacts(
+    artifacts: BenchmarkArtifacts,
+    output_dir: Path,
+) -> None:
+    """Persist windows, realizations, forecasts, and fit diagnostics."""
+    destination = Path(output_dir)
+    targets = {
+        "experiment_windows.csv": destination / "experiment_windows.csv",
+        "realizations.parquet": destination / "realizations.parquet",
+        "forecasts.parquet": destination / "forecasts.parquet",
+        "fit_diagnostics.parquet": destination / "fit_diagnostics.parquet",
+    }
+    collisions = [name for name, path in targets.items() if path.exists()]
+    if collisions:
+        raise OutputCollisionError(
+            f"Refusing to overwrite forecast artifact(s): {', '.join(collisions)}."
+        )
+    destination.mkdir(parents=True, exist_ok=True)
+    artifacts.experiment_windows.to_csv(
+        targets["experiment_windows.csv"],
+        index=False,
+        date_format="%Y-%m-%d",
+    )
+    artifacts.realizations.to_parquet(
+        targets["realizations.parquet"],
+        index=False,
+        engine="pyarrow",
+    )
+    artifacts.forecasts.to_parquet(
+        targets["forecasts.parquet"],
+        index=False,
+        engine="pyarrow",
+    )
+    artifacts.fit_diagnostics.to_parquet(
+        targets["fit_diagnostics.parquet"],
+        index=False,
+        engine="pyarrow",
+    )
+
+
 __all__ = [
     "BenchmarkArtifacts",
     "EXPERIMENT_WINDOW_COLUMNS",
+    "FIT_DIAGNOSTIC_COLUMNS",
     "FORECAST_COLUMNS",
     "REALIZATION_COLUMNS",
     "persist_benchmark_artifacts",
+    "persist_available_model_artifacts",
+    "run_available_models",
+    "run_ewma_candidate",
     "run_historical_benchmarks",
 ]

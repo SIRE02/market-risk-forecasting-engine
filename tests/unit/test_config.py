@@ -89,3 +89,12 @@ def test_nonfrozen_historical_windows_fail(project_root: Path, tmp_path: Path) -
 
     with pytest.raises(ConfigInvalidError, match="variance_window=252"):
         load_config(path)
+
+
+def test_nonfrozen_ewma_parameters_fail(project_root: Path, tmp_path: Path) -> None:
+    source = (project_root / "config.example.toml").read_text(encoding="utf-8")
+    path = tmp_path / "ewma.toml"
+    path.write_text(source.replace("lambda = 0.94", "lambda = 0.95"), encoding="utf-8")
+
+    with pytest.raises(ConfigInvalidError, match=r"ewma\.lambda=0\.94"):
+        load_config(path)

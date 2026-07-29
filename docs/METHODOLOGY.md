@@ -31,6 +31,15 @@ benchmark uses exactly 500 trailing returns and linear empirical 5% and 1%
 quantiles. Reported positive-loss VaR is `max(0, -quantile)`; the underlying
 return quantile remains unfloored.
 
+The EWMA candidate is initialized once, at its first eligible origin, using
+the sample variance (`ddof=1`) of the first 252 returns. Every later origin
+updates the prior one-step variance forecast with
+`0.94 * prior_variance + 0.06 * origin_return^2`. This state runs continuously
+through development, validation, and test without resets. Assuming zero
+conditional mean, standard-normal 5% and 1% quantiles convert the variance
+forecast to return quantiles and positive-loss VaR. All public values remain
+in decimal-return units.
+
 Window records are classified as development, validation, or test from
 `target_date`, never from `forecast_origin`. Realization records begin at the
 first 252-observation benchmark origin, while the 500-observation benchmark

@@ -9,6 +9,7 @@ from market_risk_forecasting.config import PeriodConfig
 from market_risk_forecasting.errors import WindowAlignmentError
 from market_risk_forecasting.windows import (
     classify_target_date,
+    iter_expanding_forecast_windows,
     iter_forecast_windows,
     validate_canonical_index,
 )
@@ -121,6 +122,32 @@ def test_appending_future_dates_leaves_prior_windows_unchanged(
     ]
 
     assert extended_prior == original_windows
+
+
+def test_expanding_windows_keep_the_initial_training_start(
+    periods: PeriodConfig,
+) -> None:
+    index = pd.date_range("2014-12-20", periods=20, freq="D")
+
+    windows = list(
+        iter_expanding_forecast_windows(
+            index=index,
+            series_id="SPY",
+            model_id="ewma_lambda_0_94",
+            initial_observations=5,
+            periods=periods,
+        )
+    )
+
+    assert [window.train_observation_count for window in windows] == list(range(5, 20))
+    assert all(window.train_start == index[0] for window in windows)
+    assert all(not window.scheduled_refit for window in windows)
+    first_validation = next(
+        window for window in windows if window.period == "validation"
+    )
+    assert first_validation.target_date == pd.Timestamp("2015-01-01")
+    assert first_validation.train_start == index[0]
+    assert first_validation.train_observation_count == 12
 
 
 def test_duplicate_and_unsorted_dates_fail() -> None:

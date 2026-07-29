@@ -373,6 +373,8 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             ewma_raw, "initialization_window", "ewma", minimum=2
         ),
     )
+    if ewma.lambda_ != 0.94 or ewma.initialization_window != 252:
+        raise _fail("v0.1 requires ewma.lambda=0.94 and initialization_window=252.")
 
     garch_raw = _section(
         raw,
