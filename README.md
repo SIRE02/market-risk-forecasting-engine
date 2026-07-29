@@ -11,7 +11,7 @@ not live or prospective forecasting.
 
 ## Current implementation status
 
-Phase 4 is the current implementation boundary. It provides:
+Phase 5 is the current implementation boundary. It provides:
 
 - installable package and CLI entry point;
 - strict TOML configuration parsing;
@@ -41,13 +41,19 @@ Phase 4 is the current implementation boundary. It provides:
 - convergence, parameter, persistence, retry, scaling, and runtime diagnostics;
 - typed fit failures that invalidate state until the next scheduled refit;
 - combined benchmark and candidate artifacts on common forecast dates;
+- QLIKE, squared-error, absolute-error, and lower-tail pinball scores;
+- explicit valid, failed, unavailable, and pairwise common-date counts;
+- strict VaR exceptions with Kupiec and Christoffersen coverage tests;
+- deterministic moving-block bootstrap comparisons using the frozen seed;
+- separate validation and final-test results plus predeclared 2020–2025 tables;
+- stable CSV schemas for all evaluation and inference artifacts;
 - deterministic benchmark forecast IDs and stable CSV/Parquet artifacts;
 - typed benchmark failures without clipping or model substitution;
 - frozen protocol documentation and CI.
 
-Evaluation, inference, and reporting are intentionally deferred to later
-phases. The public `run` command remains reserved until it can satisfy the
-complete experiment-artifact contract.
+Release orchestration, final reporting, and figures are intentionally deferred
+to the final implementation phase. The public `run` command remains reserved
+until it can satisfy the complete experiment-artifact contract.
 
 ## Development
 

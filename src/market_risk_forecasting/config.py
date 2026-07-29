@@ -468,6 +468,19 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         raise _fail(
             "evaluation.primary_var_confidence must be listed in var_confidence_levels."
         )
+    if (
+        confidence_levels != (0.95, 0.99)
+        or primary_confidence != 0.95
+        or evaluation.bootstrap_block_length != 20
+        or evaluation.bootstrap_resamples != 2000
+        or evaluation.bootstrap_confidence != 0.95
+        or experiment.random_seed != 42
+    ):
+        raise _fail(
+            "v0.1 requires evaluation levels [0.95, 0.99], primary level "
+            "0.95, bootstrap block length 20, 2000 resamples, confidence "
+            "0.95, and random seed 42."
+        )
 
     return ForecastConfig(
         experiment=experiment,

@@ -20,6 +20,11 @@ from market_risk_forecasting.errors import (
     OutputCollisionError,
     WindowAlignmentError,
 )
+from market_risk_forecasting.evaluation import (
+    EvaluationArtifacts,
+    evaluate_forecasts,
+    persist_evaluation_artifacts,
+)
 from market_risk_forecasting.identifiers import make_fit_id, make_forecast_id
 from market_risk_forecasting.models.ewma import EWMA_MODEL_ID, EwmaModel
 from market_risk_forecasting.models.garch import (
@@ -114,6 +119,14 @@ class BenchmarkArtifacts:
     realizations: pd.DataFrame
     forecasts: pd.DataFrame
     fit_diagnostics: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class EvaluatedModelArtifacts:
+    """Forecast artifacts paired with deterministic evaluation tables."""
+
+    models: BenchmarkArtifacts
+    evaluation: EvaluationArtifacts
 
 
 def _all_benchmark_windows(
@@ -854,6 +867,40 @@ def run_available_models(
     return artifacts
 
 
+def evaluate_model_artifacts(
+    *,
+    artifacts: BenchmarkArtifacts,
+    config: ForecastConfig,
+) -> EvaluationArtifacts:
+    """Evaluate already-generated forecasts without fitting any model."""
+    return evaluate_forecasts(
+        forecasts=artifacts.forecasts,
+        realizations=artifacts.realizations,
+        config=config,
+    )
+
+
+def run_available_models_with_evaluation(
+    *,
+    dataset: ResearchDataset,
+    config: ForecastConfig,
+    upstream_simple_return_checksum: str,
+) -> EvaluatedModelArtifacts:
+    """Run every available model and build the frozen evaluation tables."""
+    models = run_available_models(
+        dataset=dataset,
+        config=config,
+        upstream_simple_return_checksum=upstream_simple_return_checksum,
+    )
+    return EvaluatedModelArtifacts(
+        models=models,
+        evaluation=evaluate_model_artifacts(
+            artifacts=models,
+            config=config,
+        ),
+    )
+
+
 def persist_benchmark_artifacts(
     artifacts: BenchmarkArtifacts,
     output_dir: Path,
@@ -928,15 +975,48 @@ def persist_available_model_artifacts(
     )
 
 
+def persist_evaluated_model_artifacts(
+    artifacts: EvaluatedModelArtifacts,
+    output_dir: Path,
+) -> None:
+    """Persist every numerical forecast and evaluation artifact."""
+    destination = Path(output_dir)
+    names = (
+        "experiment_windows.csv",
+        "realizations.parquet",
+        "forecasts.parquet",
+        "fit_diagnostics.parquet",
+        "forecast_availability.csv",
+        "variance_scores.csv",
+        "quantile_scores.csv",
+        "coverage_tests.csv",
+        "bootstrap_comparisons.csv",
+        "period_breakdowns.csv",
+    )
+    collisions = [name for name in names if (destination / name).exists()]
+    if collisions:
+        raise OutputCollisionError(
+            "Refusing to overwrite numerical artifact(s): "
+            + ", ".join(collisions)
+            + "."
+        )
+    persist_available_model_artifacts(artifacts.models, destination)
+    persist_evaluation_artifacts(artifacts.evaluation, destination)
+
+
 __all__ = [
     "BenchmarkArtifacts",
+    "EvaluatedModelArtifacts",
     "EXPERIMENT_WINDOW_COLUMNS",
     "FIT_DIAGNOSTIC_COLUMNS",
     "FORECAST_COLUMNS",
     "REALIZATION_COLUMNS",
+    "evaluate_model_artifacts",
     "persist_benchmark_artifacts",
     "persist_available_model_artifacts",
+    "persist_evaluated_model_artifacts",
     "run_available_models",
+    "run_available_models_with_evaluation",
     "run_benchmarks_and_ewma",
     "run_ewma_candidate",
     "run_garch_candidates",

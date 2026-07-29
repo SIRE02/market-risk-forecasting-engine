@@ -110,3 +110,18 @@ def test_nonfrozen_garch_protocol_fails(project_root: Path, tmp_path: Path) -> N
 
     with pytest.raises(ConfigInvalidError, match="refit_every_origins=20"):
         load_config(path)
+
+
+def test_nonfrozen_evaluation_protocol_fails(
+    project_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = (project_root / "config.example.toml").read_text(encoding="utf-8")
+    path = tmp_path / "evaluation.toml"
+    path.write_text(
+        source.replace("bootstrap_resamples = 2000", "bootstrap_resamples = 1000"),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigInvalidError, match="2000 resamples"):
+        load_config(path)

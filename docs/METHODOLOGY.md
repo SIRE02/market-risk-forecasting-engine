@@ -56,6 +56,27 @@ state: forecasts remain failed until the next scheduled attempt, and stale
 parameters are never reused. Every scheduled attempt is retained in fit
 diagnostics.
 
+Evaluation joins forecasts to the identical saved realization keys and keeps
+validation and final-test aggregates separate. Variance forecasts are scored
+with QLIKE, squared error, and absolute error against squared one-session
+returns. Lower-tail 5% and 1% return quantiles use pinball loss. Scores are
+reported by series and across all four series; lower values are better.
+
+VaR exceptions use the strict rule `realized_loss > reported_VaR`, so equality
+is not an exception. Coverage tables retain exception counts and clusters,
+Kupiec unconditional coverage, Christoffersen independence, and combined
+conditional coverage. Undefined Christoffersen cases are labelled
+`insufficient_events` instead of receiving invented statistics.
+
+Candidate-versus-benchmark inference uses only dates with valid paired
+forecasts and the same realization. Failed and unavailable dates remain
+visible in availability tables. The paired loss difference is candidate minus
+benchmark, and uncertainty uses a deterministic moving-block bootstrap with
+block length 20, 2,000 resamples, seed 42, and 95% percentile intervals. For
+the all-series result, blocks are sampled within each series before pooling.
+The final-test descriptive breakdowns are fixed in advance to calendar years
+2020 through 2025.
+
 Window records are classified as development, validation, or test from
 `target_date`, never from `forecast_origin`. Realization records begin at the
 first 252-observation benchmark origin, while the 500-observation benchmark
