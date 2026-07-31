@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from market_risk_forecasting.config import UpstreamConfig
+from market_risk_forecasting.config import ForecastConfig, UpstreamConfig
 from market_risk_forecasting.errors import (
     InputDateDuplicateError,
     InputDateUnsortedError,
@@ -35,6 +35,24 @@ _REQUIRED_FILES = (
 _EARLIEST_ACCEPTABLE_FIRST_DATE = date(2007, 12, 31)
 _LATEST_ACCEPTABLE_LAST_DATE = date(2025, 12, 30)
 _MINIMUM_COMMON_DATE_COUNT = 4000
+
+
+@dataclass(frozen=True)
+class UpstreamCoverageRequirements:
+    """Data coverage required by one experiment protocol."""
+
+    minimum_common_date_count: int
+    first_date_not_after: date
+    last_date_not_before: date
+    forecast_window: int | None = None
+    periods: tuple[tuple[str, date, date], ...] = ()
+
+
+_FROZEN_V01_COVERAGE = UpstreamCoverageRequirements(
+    minimum_common_date_count=_MINIMUM_COMMON_DATE_COUNT,
+    first_date_not_after=_EARLIEST_ACCEPTABLE_FIRST_DATE,
+    last_date_not_before=_LATEST_ACCEPTABLE_LAST_DATE,
+)
 
 
 @dataclass(frozen=True)
@@ -215,6 +233,7 @@ def _validate_manifest(
 def _validate_quality(
     quality: Mapping[str, Any],
     expected_instruments: tuple[str, ...],
+    coverage: UpstreamCoverageRequirements,
 ) -> None:
     requested = _ordered_strings(
         quality.get("requested_instruments"),
@@ -240,24 +259,26 @@ def _validate_quality(
         quality.get("common_date_count_after_alignment"),
         label="quality.common_date_count_after_alignment",
     )
-    if common_count < _MINIMUM_COMMON_DATE_COUNT:
+    if common_count < coverage.minimum_common_date_count:
         raise UpstreamQualityGateFailedError(
             f"Common aligned history has {common_count} observations; "
-            f"at least {_MINIMUM_COMMON_DATE_COUNT} are required."
+            f"at least {coverage.minimum_common_date_count} are required."
         )
     first_date = _iso_date(
         quality.get("first_common_date"), label="quality.first_common_date"
     )
-    if first_date > _EARLIEST_ACCEPTABLE_FIRST_DATE:
+    if first_date > coverage.first_date_not_after:
         raise UpstreamQualityGateFailedError(
-            f"First common date {first_date.isoformat()} is too late."
+            f"First common date {first_date.isoformat()} is too late; it must be "
+            f"on or before {coverage.first_date_not_after.isoformat()}."
         )
     last_date = _iso_date(
         quality.get("last_common_date"), label="quality.last_common_date"
     )
-    if last_date < _LATEST_ACCEPTABLE_LAST_DATE:
+    if last_date < coverage.last_date_not_before:
         raise UpstreamQualityGateFailedError(
-            f"Last common date {last_date.isoformat()} is too early."
+            f"Last common date {last_date.isoformat()} is too early; it must be "
+            f"on or after {coverage.last_date_not_before.isoformat()}."
         )
 
 
@@ -295,6 +316,7 @@ def _validate_frame(
     *,
     manifest_instruments: tuple[str, ...],
     quality: Mapping[str, Any],
+    coverage: UpstreamCoverageRequirements,
 ) -> pd.DataFrame:
     actual_instruments = tuple(str(column) for column in frame.columns)
     if actual_instruments != manifest_instruments:
@@ -335,15 +357,54 @@ def _validate_frame(
             "Loaded return dates do not reconcile with the upstream aligned-price "
             "date range."
         )
+    if coverage.forecast_window is not None:
+        observed_dates = pd.DatetimeIndex(frame.index).date
+        for label, start, end in coverage.periods:
+            eligible_positions = [
+                position
+                for position, observed in enumerate(observed_dates)
+                if start <= observed <= end and position >= coverage.forecast_window
+            ]
+            if not eligible_positions:
+                raise UpstreamQualityGateFailedError(
+                    f"Configured {label} period has no target observation with "
+                    f"{coverage.forecast_window} prior returns."
+                )
     return frame.astype(float, copy=True)
+
+
+def coverage_requirements(config: ForecastConfig) -> UpstreamCoverageRequirements:
+    """Derive input gates without changing the immutable frozen-v0.1 contract."""
+    if config.is_frozen_v01:
+        return _FROZEN_V01_COVERAGE
+    maximum_window = max(
+        config.historical.variance_window,
+        config.historical.var_window,
+        config.ewma.initialization_window,
+        config.garch.estimation_window,
+    )
+    periods = config.periods
+    return UpstreamCoverageRequirements(
+        minimum_common_date_count=maximum_window + 2,
+        first_date_not_after=periods.development_end,
+        last_date_not_before=periods.test_start,
+        forecast_window=maximum_window,
+        periods=(
+            ("development", periods.development_start, periods.development_end),
+            ("validation", periods.validation_start, periods.validation_end),
+            ("test", periods.test_start, periods.test_end),
+        ),
+    )
 
 
 def load_upstream_run(
     input_run_dir: Path,
     expected: UpstreamConfig,
+    coverage: UpstreamCoverageRequirements | None = None,
 ) -> UpstreamRun:
     """Validate and load one complete upstream v0.1.0 run without network access."""
     run_dir = Path(input_run_dir)
+    required_coverage = coverage or _FROZEN_V01_COVERAGE
     missing = [name for name in _REQUIRED_FILES if not (run_dir / name).is_file()]
     if missing:
         raise UpstreamManifestInvalidError(
@@ -354,11 +415,12 @@ def load_upstream_run(
     manifest = _load_json(run_dir / "run_manifest.json", label="run manifest")
     quality = _load_json(run_dir / "data_quality_report.json", label="quality report")
     manifest_instruments = _validate_manifest(manifest, expected)
-    _validate_quality(quality, expected.instruments)
+    _validate_quality(quality, expected.instruments, required_coverage)
     frame = _validate_frame(
         _load_public_artifact(run_dir),
         manifest_instruments=manifest_instruments,
         quality=quality,
+        coverage=required_coverage,
     )
     checksums = {name: sha256_file(run_dir / name) for name in sorted(_REQUIRED_FILES)}
     if any(
@@ -395,7 +457,9 @@ def quality_adjustment_counts(quality: Mapping[str, Any]) -> Mapping[str, int]:
 
 
 __all__ = [
+    "UpstreamCoverageRequirements",
     "UpstreamRun",
+    "coverage_requirements",
     "load_upstream_run",
     "quality_adjustment_counts",
     "sha256_file",

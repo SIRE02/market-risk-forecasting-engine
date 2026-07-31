@@ -1,0 +1,10 @@
+name: market-risk-forecasting-engine
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pip
+  - setuptools>=75
+  - pip:
+      - -r requirements.lock

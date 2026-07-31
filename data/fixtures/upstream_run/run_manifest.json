@@ -1,7 +1,7 @@
 {
   "project": "historical-asset-risk-engine",
   "project_version": "0.1.0",
-  "git_commit": "5d189b528306b78b87970e4e83dc2b8dc7b279b3",
+  "git_commit": "f8a1b91b3f3e1e74040c232d8841397d0f032508",
   "execution_timestamp": "2026-01-01T00:00:00+00:00",
   "fixture": {
     "synthetic": true,

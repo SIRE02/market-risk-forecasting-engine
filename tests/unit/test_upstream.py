@@ -20,7 +20,11 @@ from market_risk_forecasting.errors import (
     UpstreamSchemaIncompatibleError,
     UpstreamVersionIncompatibleError,
 )
-from market_risk_forecasting.upstream import load_upstream_run, sha256_file
+from market_risk_forecasting.upstream import (
+    coverage_requirements,
+    load_upstream_run,
+    sha256_file,
+)
 
 
 @pytest.fixture
@@ -168,6 +172,34 @@ def test_provider_return_order_does_not_override_canonical_order(
     run = load_upstream_run(copied_run, config.upstream)
 
     assert run.instrument_order == ("SPY", "IEF", "GLD")
+
+
+def test_custom_protocol_accepts_configured_instrument_universe(
+    copied_run: Path,
+    project_root: Path,
+) -> None:
+    custom = load_config(project_root / "configs" / "aapl_msft_gld.toml")
+    returns_path = copied_run / "simple_returns.csv"
+    frame = pd.read_csv(returns_path).rename(columns={"SPY": "AAPL", "IEF": "MSFT"})
+    frame.to_csv(returns_path, index=False)
+
+    def update_manifest(manifest: dict[str, Any]) -> None:
+        manifest["data_source"]["instruments"] = ["AAPL", "MSFT", "GLD"]
+
+    def update_quality(quality: dict[str, Any]) -> None:
+        quality["requested_instruments"] = ["AAPL", "MSFT", "GLD"]
+        quality["returned_instruments"] = ["AAPL", "MSFT", "GLD"]
+
+    _mutate_json(copied_run / "run_manifest.json", update_manifest)
+    _mutate_json(copied_run / "data_quality_report.json", update_quality)
+
+    run = load_upstream_run(
+        copied_run,
+        custom.upstream,
+        coverage_requirements(custom),
+    )
+
+    assert run.instrument_order == ("AAPL", "MSFT", "GLD")
 
 
 def test_forward_fill_declaration_fails(

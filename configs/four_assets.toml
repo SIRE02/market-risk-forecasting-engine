@@ -1,0 +1,48 @@
+[experiment]
+experiment_id = "risk-v02-aapl-msft-gld-tlt"
+protocol_version = "2.0"
+input_run_dir = "data/upstream/aapl-msft-gld-tlt-2010-2025"
+output_dir = "outputs/risk-v02-aapl-msft-gld-tlt"
+random_seed = 42
+
+[upstream]
+project = "historical-asset-risk-engine"
+package_version = "0.1.0"
+simple_returns_schema_id = "historical-asset-risk/simple-returns"
+simple_returns_schema_version = "1.experimental"
+simple_returns_units = "decimal_return_per_observation"
+instruments = ["AAPL", "MSFT", "GLD", "TLT"]
+
+[periods]
+development_start = "2010-01-01"
+development_end = "2017-12-31"
+validation_start = "2018-01-01"
+validation_end = "2021-12-31"
+test_start = "2022-01-01"
+test_end = "2025-12-31"
+
+[portfolio_proxy]
+enabled = false
+
+[historical]
+variance_window = 252
+var_window = 500
+quantile_method = "linear"
+
+[ewma]
+lambda = 0.94
+initialization_window = 252
+
+[garch]
+estimation_window = 1250
+refit_every_origins = 20
+input_scale = 100.0
+retry_count = 1
+stationarity_tolerance = 1e-8
+
+[evaluation]
+var_confidence_levels = [0.95, 0.99]
+primary_var_confidence = 0.95
+bootstrap_block_length = 20
+bootstrap_resamples = 2000
+bootstrap_confidence = 0.95

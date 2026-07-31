@@ -1,6 +1,5 @@
-# Phase 0 Python 3.12 development resolution (2026-07-29).
-# The empirical frozen run has not occurred; its manifest must record this
-# complete resolution before any result is produced.
+# Market-risk-forecasting-engine v0.2.0 Python 3.12 resolution (2026-07-31).
+# Every empirical run records the installed resolution in run_manifest.json.
 arch==7.2.0
 beautifulsoup4==4.15.0
 build==1.5.0
@@ -14,7 +13,7 @@ curl_cffi==0.15.0
 cycler==0.12.1
 fonttools==4.63.0
 frozendict==2.4.7
-historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@5d189b528306b78b87970e4e83dc2b8dc7b279b3
+historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@f8a1b91b3f3e1e74040c232d8841397d0f032508
 idna==3.18
 iniconfig==2.3.0
 kiwisolver==1.5.0

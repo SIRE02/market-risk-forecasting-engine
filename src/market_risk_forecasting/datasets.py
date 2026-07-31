@@ -1,4 +1,4 @@
-"""Canonical v0.1 research-series construction and lineage manifest."""
+"""Canonical research-series construction and lineage manifests."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from market_risk_forecasting.upstream import (
     quality_adjustment_counts,
 )
 
-_INDIVIDUAL_SERIES = ("SPY", "IEF", "GLD")
 _DATASET_SCHEMA_ID = "market-risk-forecasting/research-series"
 _DATASET_SCHEMA_VERSION = "1.experimental"
 _DATASET_UNITS = "decimal_simple_return_per_observation"
@@ -40,17 +39,23 @@ def construct_research_series(
     upstream_returns: pd.DataFrame,
     proxy: PortfolioProxyConfig,
 ) -> pd.DataFrame:
-    """Construct the three unchanged ETF series and the constant-weight proxy."""
+    """Preserve configured instruments and optionally add a constant-weight proxy."""
     actual = tuple(str(column) for column in upstream_returns.columns)
-    if actual != _INDIVIDUAL_SERIES:
+    result = upstream_returns.astype(float, copy=True)
+    if not proxy.enabled:
+        return result
+
+    expected = tuple(proxy.weights)
+    if actual != expected:
         raise InputValueInvalidError(
-            "Research-series input columns must be ordered SPY, IEF, GLD."
+            "Research-series input columns must match the configured proxy "
+            "instruments and be ordered identically."
         )
     weights = proxy.weights
     if not math.isclose(sum(weights.values()), 1.0, abs_tol=1e-12):
         raise InputValueInvalidError("Portfolio proxy weights must sum to one.")
-
-    result = upstream_returns.loc[:, list(_INDIVIDUAL_SERIES)].astype(float, copy=True)
+    if proxy.series_id is None:
+        raise InputValueInvalidError("Enabled portfolio proxy requires a series ID.")
     result[proxy.series_id] = sum(
         result[ticker] * weight for ticker, weight in weights.items()
     )
@@ -73,6 +78,20 @@ def build_dataset_manifest(
     git_commit = upstream.manifest.get("git_commit")
     if not isinstance(git_commit, str):
         git_commit = None
+
+    portfolio_proxy: dict[str, Any]
+    if proxy.enabled:
+        portfolio_proxy = {
+            "series_id": proxy.series_id,
+            "weights": dict(proxy.weights),
+            "weight_sum": sum(proxy.weights.values()),
+            "interpretation": "daily_constant_weight_return_proxy",
+            "rebalanced_each_observation": True,
+            "transaction_costs": False,
+            "holdings_ledger": False,
+        }
+    else:
+        portfolio_proxy = {"enabled": False}
 
     return {
         "schema_id": "market-risk-forecasting/dataset-manifest",
@@ -100,15 +119,7 @@ def build_dataset_manifest(
                 quality_adjustment_counts(upstream.quality_report)
             ),
         },
-        "portfolio_proxy": {
-            "series_id": proxy.series_id,
-            "weights": dict(proxy.weights),
-            "weight_sum": sum(proxy.weights.values()),
-            "interpretation": "daily_constant_weight_return_proxy",
-            "rebalanced_each_observation": True,
-            "transaction_costs": False,
-            "holdings_ledger": False,
-        },
+        "portfolio_proxy": portfolio_proxy,
     }
 
 

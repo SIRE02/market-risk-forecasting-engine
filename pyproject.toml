@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "market-risk-forecasting-engine"
-version = "0.1.0.dev0"
+version = "0.2.0"
 description = "Leakage-resistant one-session-ahead variance and VaR forecasting research."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -15,7 +15,7 @@ authors = [
 ]
 dependencies = [
     "arch>=7.2,<8",
-    "historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@5d189b528306b78b87970e4e83dc2b8dc7b279b3",
+    "historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@f8a1b91b3f3e1e74040c232d8841397d0f032508",
     "matplotlib>=3.9,<4",
     "numpy>=2.0,<3",
     "pandas>=2.2,<3",

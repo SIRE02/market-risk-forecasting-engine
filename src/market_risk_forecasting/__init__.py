@@ -8,7 +8,7 @@ from market_risk_forecasting.datasets import (
 )
 from market_risk_forecasting.upstream import UpstreamRun, load_upstream_run
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ForecastConfig",

@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from market_risk_forecasting.config import load_config
+from market_risk_forecasting.config import PortfolioProxyConfig, load_config
 from market_risk_forecasting.datasets import (
     build_research_dataset,
     construct_research_series,
@@ -55,6 +55,40 @@ def test_individual_series_are_not_transformed(project_root: Path) -> None:
         upstream.returns,
     )
     assert dataset.series_order == ("SPY", "IEF", "GLD", "MIX_60_30_10")
+
+
+def test_custom_universe_can_disable_portfolio_proxy() -> None:
+    frame = pd.DataFrame(
+        {
+            "AAPL": [0.01, -0.02],
+            "MSFT": [0.03, 0.01],
+            "GLD": [-0.01, 0.02],
+        },
+        index=pd.to_datetime(["2025-01-02", "2025-01-03"]),
+    )
+    disabled = PortfolioProxyConfig(False, None, ())
+
+    actual = construct_research_series(frame, disabled)
+
+    pd.testing.assert_frame_equal(actual, frame)
+    assert tuple(actual.columns) == ("AAPL", "MSFT", "GLD")
+
+
+def test_custom_universe_builds_dynamic_portfolio_proxy() -> None:
+    frame = pd.DataFrame(
+        {"AAPL": [0.01], "MSFT": [0.03], "GLD": [-0.01]},
+        index=pd.to_datetime(["2025-01-02"]),
+    )
+    proxy = PortfolioProxyConfig(
+        True,
+        "TECH_GOLD",
+        (("AAPL", 0.50), ("MSFT", 0.30), ("GLD", 0.20)),
+    )
+
+    actual = construct_research_series(frame, proxy)
+
+    assert tuple(actual.columns) == ("AAPL", "MSFT", "GLD", "TECH_GOLD")
+    assert actual.loc[pd.Timestamp("2025-01-02"), "TECH_GOLD"] == pytest.approx(0.012)
 
 
 def test_dataset_manifest_preserves_lineage(project_root: Path) -> None:

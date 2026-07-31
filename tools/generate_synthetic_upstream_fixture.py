@@ -7,7 +7,7 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-UPSTREAM_COMMIT = "5d189b528306b78b87970e4e83dc2b8dc7b279b3"
+UPSTREAM_COMMIT = "f8a1b91b3f3e1e74040c232d8841397d0f032508"
 INSTRUMENTS = ("SPY", "IEF", "GLD")
 
 

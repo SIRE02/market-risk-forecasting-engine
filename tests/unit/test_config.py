@@ -22,6 +22,45 @@ def test_frozen_configuration_loads(project_root: Path) -> None:
     assert config.garch.estimation_window == 1250
 
 
+def test_custom_configuration_accepts_dynamic_universe(project_root: Path) -> None:
+    config = load_config(project_root / "configs" / "aapl_msft_gld.toml")
+
+    assert config.experiment.protocol_version == "2.0"
+    assert config.upstream.instruments == ("AAPL", "MSFT", "GLD")
+    assert config.portfolio_proxy.enabled is False
+    assert config.portfolio_proxy.series_id is None
+    assert config.portfolio_proxy.weights == {}
+    assert config.to_dict()["portfolio_proxy"] == {"enabled": False}
+
+
+def test_custom_proxy_weights_must_match_dynamic_universe(
+    project_root: Path,
+    tmp_path: Path,
+) -> None:
+    source = (project_root / "configs" / "aapl_msft_gld.toml").read_text(
+        encoding="utf-8"
+    )
+    path = tmp_path / "custom-proxy.toml"
+    path.write_text(
+        source.replace(
+            "[portfolio_proxy]\nenabled = false",
+            '[portfolio_proxy]\nenabled = true\nseries_id = "TECH_GOLD"\n'
+            "weights = { AAPL = 0.50, MSFT = 0.30, GLD = 0.20 }",
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(path)
+
+    assert config.portfolio_proxy.enabled is True
+    assert config.portfolio_proxy.series_id == "TECH_GOLD"
+    assert config.portfolio_proxy.weights == {
+        "AAPL": 0.50,
+        "MSFT": 0.30,
+        "GLD": 0.20,
+    }
+
+
 def test_effective_configuration_uses_public_toml_names(project_root: Path) -> None:
     config = load_config(project_root / "config.example.toml")
 
@@ -30,6 +69,13 @@ def test_effective_configuration_uses_public_toml_names(project_root: Path) -> N
     assert effective["ewma"]["lambda"] == 0.94
     assert "lambda_" not in effective["ewma"]
     assert effective["periods"]["test_end"] == "2025-12-31"
+    assert "protocol_version" not in effective["experiment"]
+    assert effective["portfolio_proxy"] == {
+        "series_id": "MIX_60_30_10",
+        "SPY": 0.60,
+        "IEF": 0.30,
+        "GLD": 0.10,
+    }
 
 
 def test_unknown_key_fails(project_root: Path, tmp_path: Path) -> None:
