@@ -105,3 +105,20 @@ def test_vectorized_quantile_path_matches_single_window() -> None:
         single.return_quantile_0_01
     )
     assert path.loc[499, "var_0_99"] == pytest.approx(single.var_0_99)
+
+
+def test_custom_windows_and_quantile_method_are_supported() -> None:
+    values = pd.Series(np.linspace(-0.10, 0.08, 200))
+    variance_model = HistoricalVarianceModel(window=60)
+    simulation_model = HistoricalSimulationModel(
+        window=100,
+        quantile_method="nearest",
+    )
+
+    variance = variance_model.forecast(values.iloc[:60])
+    simulation = simulation_model.forecast(values.iloc[:100])
+
+    assert variance.variance == pytest.approx(float(values.iloc[:60].var(ddof=1)))
+    assert simulation.return_quantile_0_05 == pytest.approx(
+        values.iloc[:100].quantile(0.05, interpolation="nearest")
+    )

@@ -140,7 +140,7 @@ def _fit_arch_model(
     distribution_name: ArchDistributionName,
     starting_values: np.ndarray[Any, np.dtype[np.float64]] | None,
 ) -> Any:
-    """Call arch with the protocol-defined fitting policy."""
+    """Call arch with the engine-defined fitting policy."""
     model = arch_model(
         scaled_returns,
         mean="Zero",
@@ -176,21 +176,20 @@ class GarchModel:
             raise InputValueInvalidError(
                 f"Unsupported GARCH distribution {self.distribution!r}."
             )
-        if self.estimation_window != 1250:
+        if self.estimation_window < 2:
             raise InputValueInvalidError(
-                "Protocol 2.0 GARCH requires a 1,250-observation estimation window."
+                "GARCH estimation_window must be at least two."
             )
-        if self.input_scale != 100.0:
+        if not math.isfinite(self.input_scale) or self.input_scale <= 0.0:
+            raise InputValueInvalidError("GARCH input_scale must be positive.")
+        if self.retry_count not in (0, 1):
+            raise InputValueInvalidError("GARCH retry_count must be zero or one.")
+        if (
+            not math.isfinite(self.stationarity_tolerance)
+            or not 0.0 <= self.stationarity_tolerance < 1.0
+        ):
             raise InputValueInvalidError(
-                "Protocol 2.0 GARCH requires input_scale=100.0."
-            )
-        if self.retry_count != 1:
-            raise InputValueInvalidError(
-                "Protocol 2.0 GARCH permits exactly one retry."
-            )
-        if self.stationarity_tolerance != 1e-8:
-            raise InputValueInvalidError(
-                "Protocol 2.0 GARCH requires stationarity_tolerance=1e-8."
+                "GARCH stationarity_tolerance must lie in [0, 1)."
             )
 
     @property
@@ -206,7 +205,7 @@ class GarchModel:
         return "studentst"
 
     def fit(self, returns: pd.Series) -> GarchFitOutcome:
-        """Fit exactly one rolling window using one deterministic retry."""
+        """Fit one rolling window with the configured optional retry."""
         if len(returns) != self.estimation_window:
             raise InsufficientHistoryError(
                 "GARCH fitting requires exactly "
@@ -265,7 +264,7 @@ class GarchModel:
                     parameters=parameters,
                     converged=True,
                     optimizer_status=last_status,
-                    retry_used=attempt == 1,
+                    retry_used=attempt > 0,
                     runtime_seconds=time.perf_counter() - started,
                     scaling_factor=self.input_scale,
                     warning_codes=(),
@@ -284,7 +283,7 @@ class GarchModel:
             parameters=last_parameters,
             converged=last_optimizer_converged,
             optimizer_status=last_status,
-            retry_used=True,
+            retry_used=self.retry_count > 0,
             runtime_seconds=time.perf_counter() - started,
             scaling_factor=self.input_scale,
             warning_codes=(),

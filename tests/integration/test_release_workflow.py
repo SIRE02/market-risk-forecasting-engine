@@ -31,7 +31,7 @@ def _config_path(
     project_root: Path,
     tmp_path: Path,
     *,
-    experiment_id: str = "risk-v02-release-test",
+    experiment_id: str = "risk-release-test",
 ) -> Path:
     fixture = project_root / "data" / "fixtures" / "upstream_run"
     output = tmp_path / "experiment"
@@ -39,7 +39,7 @@ def _config_path(
     path = tmp_path / f"{experiment_id}.toml"
     path.write_text(
         source.replace(
-            'experiment_id = "risk-v02-example"',
+            'experiment_id = "risk-example"',
             f'experiment_id = "{experiment_id}"',
         )
         .replace(
@@ -47,7 +47,7 @@ def _config_path(
             f'input_run_dir = "{fixture.as_posix()}"',
         )
         .replace(
-            'output_dir = "outputs/risk-v02-example"',
+            'output_dir = "outputs/risk-example"',
             f'output_dir = "{output.as_posix()}"',
         ),
         encoding="utf-8",
@@ -145,6 +145,10 @@ def test_transactional_run_report_and_reproduce_workflow(
     }
     report_text = report.report_path.read_text(encoding="utf-8")
     assert "## Direct answer" in report_text
+    assert "## Forecasts through time" in report_text
+    assert "## 95% VaR through time" in report_text
+    assert "## Rolling model advantage" in report_text
+    assert "Values below zero mean the candidate performed better" in report_text
     assert "historical pseudo-out-of-sample evidence" in report_text
     assert "regulatory" in report_text
 
@@ -196,7 +200,7 @@ def test_materially_different_experiment_cannot_overwrite(
         _config_path(
             project_root,
             tmp_path,
-            experiment_id="risk-v02-materially-different",
+            experiment_id="risk-materially-different",
         )
     )
 

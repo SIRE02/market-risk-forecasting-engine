@@ -36,7 +36,7 @@ _REQUIRED_FILES = (
 
 @dataclass(frozen=True)
 class UpstreamCoverageRequirements:
-    """Data coverage required by one experiment protocol."""
+    """Data coverage required by one experiment configuration."""
 
     minimum_common_date_count: int
     first_date_not_after: date

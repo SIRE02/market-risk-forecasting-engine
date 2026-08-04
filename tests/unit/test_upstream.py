@@ -179,7 +179,7 @@ def test_provider_return_order_does_not_override_canonical_order(
     assert run.instrument_order == ("SPY", "IEF", "GLD")
 
 
-def test_custom_protocol_accepts_configured_instrument_universe(
+def test_configured_instrument_universe_is_accepted(
     copied_run: Path,
     project_root: Path,
     tmp_path: Path,

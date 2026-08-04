@@ -79,7 +79,7 @@ def test_ewma_uses_one_fit_identity_per_series(project_root: Path) -> None:
     assert diagnostics["parameter_persistence"].eq(0.94).all()
     assert diagnostics["scaling_factor"].eq(1.0).all()
     assert diagnostics["converged"].all()
-    assert set(diagnostics["optimizer_status"]) == {"not_applicable_fixed_parameter"}
+    assert set(diagnostics["optimizer_status"]) == {"not_applicable_recursive_model"}
 
 
 @pytest.mark.parametrize("target_date", ["2015-01-02", "2020-01-02"])

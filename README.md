@@ -131,16 +131,19 @@ GARCH estimation is computationally heavier than input validation, so this
 step can take several minutes. The completed experiment is written to:
 
 ```text
-outputs/risk-v02-aapl-msft-gld-tlt/
+outputs/risk-aapl-msft-gld-tlt/
 ```
 
 Start with the generated report:
 
 ```text
-outputs/risk-v02-aapl-msft-gld-tlt/research_report.md
+outputs/risk-aapl-msft-gld-tlt/research_report.md
 ```
 
-The output directory also contains forecasts, realizations, fit diagnostics,
+The report starts with time-series plots of forecast volatility against
+realized-return context, realized losses against 95% VaR with exceptions
+marked, and rolling candidate-versus-benchmark performance. The output
+directory also contains forecasts, realizations, fit diagnostics, aggregate
 evaluation tables, figures, manifests, and checksums.
 
 ## How the paired configurations work
@@ -176,10 +179,9 @@ In the forecasting configuration, use the same ordered tickers and directory:
 
 ```toml
 [experiment]
-experiment_id = "risk-v02-nvda-amzn-gld-tlt"
-protocol_version = "2.0"
+experiment_id = "risk-nvda-amzn-gld-tlt"
 input_run_dir = "data/upstream/nvda-amzn-gld-tlt-2010-2025"
-output_dir = "outputs/risk-v02-nvda-amzn-gld-tlt"
+output_dir = "outputs/risk-nvda-amzn-gld-tlt"
 
 [upstream]
 instruments = ["NVDA", "AMZN", "GLD", "TLT"]
@@ -189,16 +191,28 @@ Keep the remaining schema identity and model sections from the example file.
 Important rules:
 
 - every asset needs sufficient shared history;
-- the current GARCH model requires 1,250 prior returns;
+- every period needs targets with enough prior returns for the largest
+  configured model window;
 - development, validation, and test periods must each contain eligible target
   observations;
 - choose experiment periods before inspecting comparative results;
 - use a new experiment ID and output directory for a materially different run.
 
 The example keeps only individual assets by setting
-`portfolio_proxy.enabled = false`. Protocol 2.0 can also add a dynamic
-constant-weight proxy. See
-[`docs/CUSTOM_PROTOCOL.md`](docs/CUSTOM_PROTOCOL.md).
+`portfolio_proxy.enabled = false`. The engine can also add a dynamic
+constant-weight proxy. See the
+[`configuration guide`](docs/configuration.md) for the complete contract.
+
+## Documentation
+
+- [`Configuration`](docs/configuration.md) explains the paired data workflow,
+  experiment contract, portfolio proxies, and input validation.
+- [`Methodology and limitations`](docs/methodology-and-limitations.md) documents the models,
+  forecast timing, evaluation rules, statistical inference, and research
+  boundaries.
+- [`Data`](docs/data.md) distinguishes committed synthetic fixtures from
+  ignored provider artifacts.
+- [`Changelog`](docs/changelog.md) records published versions.
 
 ## Commands
 
@@ -218,21 +232,23 @@ and output directory.
 
 For every configured series, the engine:
 
-- computes 252-return historical variance and 500-return
-  historical-simulation VaR benchmarks;
-- updates an EWMA variance process with lambda 0.94;
-- fits zero-mean Gaussian and Student-t GARCH(1,1) models using rolling
-  1,250-return windows and scheduled refits;
+- computes configurable-window historical variance and historical-simulation
+  VaR benchmarks;
+- updates an EWMA variance process with configurable decay and initialization;
+- fits zero-mean Gaussian and Student-t GARCH(1,1) models using configurable
+  rolling windows, refit intervals, scaling, and retry behavior;
 - creates strictly next-observation targets without future-data leakage;
 - evaluates variance with QLIKE and VaR with lower-tail pinball loss;
 - reports VaR exceptions, Kupiec coverage, Christoffersen independence, and
   deterministic moving-block bootstrap comparisons;
+- plots forecast and realized histories, VaR exceptions, and rolling model
+  advantage so changes through time are visible before the aggregate tables;
 - retains failed fits and diagnostics instead of silently substituting another
   model.
 
-Protocol 2.0 currently generalizes instruments, periods, and the optional
-portfolio proxy. The vetted numerical model and evaluation settings remain
-fixed.
+Instruments, periods, the optional portfolio proxy, model windows, EWMA decay,
+GARCH fitting controls, bootstrap settings, and the deterministic seed are
+configurable. The current artifact schema reports 95% and 99% VaR.
 
 ## Reproducibility and artifacts
 
@@ -298,4 +314,4 @@ python -m pytest -q
 python -m build
 ```
 
-Release history is recorded in [`CHANGELOG.md`](CHANGELOG.md).
+Release history is recorded in [`docs/changelog.md`](docs/changelog.md).

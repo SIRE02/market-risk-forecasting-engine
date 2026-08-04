@@ -1,4 +1,4 @@
-"""Fixed-parameter continuous EWMA variance and Gaussian VaR forecasts."""
+"""Continuous EWMA variance and Gaussian VaR forecasts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from market_risk_forecasting.errors import (
     NonpositiveVarianceError,
 )
 
-EWMA_MODEL_ID = "ewma_lambda_0_94"
+EWMA_MODEL_ID = "ewma"
 
 
 @dataclass(frozen=True)
@@ -38,22 +38,22 @@ class EwmaForecast:
 
 @dataclass(frozen=True)
 class EwmaModel:
-    """EWMA with one initialization and a continuous lambda=0.94 recursion."""
+    """EWMA with one initialization and a continuous variance recursion."""
 
     lambda_: float = 0.94
     initialization_window: int = 252
     model_id: str = EWMA_MODEL_ID
 
     def __post_init__(self) -> None:
-        if self.lambda_ != 0.94:
-            raise InputValueInvalidError("Protocol 2.0 EWMA requires lambda=0.94.")
-        if self.initialization_window != 252:
+        if not math.isfinite(self.lambda_) or not 0.0 < self.lambda_ < 1.0:
+            raise InputValueInvalidError("EWMA lambda must lie strictly in (0, 1).")
+        if self.initialization_window < 2:
             raise InputValueInvalidError(
-                "Protocol 2.0 EWMA requires a 252-observation initialization."
+                "EWMA initialization_window must be at least two."
             )
 
     def initialize(self, returns: pd.Series) -> EwmaState:
-        """Initialize once with sample variance of exactly the first 252 returns."""
+        """Initialize once with the configured sample-variance window."""
         if len(returns) != self.initialization_window:
             raise InsufficientHistoryError(
                 f"EWMA initialization requires exactly "

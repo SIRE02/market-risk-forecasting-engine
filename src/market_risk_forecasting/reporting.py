@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import matplotlib
+import numpy as np
 import pandas as pd
 
 matplotlib.use("Agg")
@@ -32,11 +33,15 @@ from market_risk_forecasting.models.garch import (
     GAUSSIAN_GARCH_MODEL_ID,
     STUDENT_T_GARCH_MODEL_ID,
 )
+from market_risk_forecasting.models.historical import (
+    HISTORICAL_SIMULATION_MODEL_ID,
+    HISTORICAL_VARIANCE_MODEL_ID,
+)
 
 _MODEL_LABELS = {
-    "historical_variance_252": "Historical variance (252)",
-    "historical_simulation_500": "Historical simulation (500)",
-    EWMA_MODEL_ID: "EWMA (lambda 0.94)",
+    HISTORICAL_VARIANCE_MODEL_ID: "Historical variance",
+    HISTORICAL_SIMULATION_MODEL_ID: "Historical simulation",
+    EWMA_MODEL_ID: "EWMA",
     GAUSSIAN_GARCH_MODEL_ID: "Gaussian GARCH(1,1)",
     STUDENT_T_GARCH_MODEL_ID: "Student-t GARCH(1,1)",
 }
@@ -45,7 +50,26 @@ _CANDIDATES = (
     GAUSSIAN_GARCH_MODEL_ID,
     STUDENT_T_GARCH_MODEL_ID,
 )
+_VARIANCE_MODELS = (
+    HISTORICAL_VARIANCE_MODEL_ID,
+    *_CANDIDATES,
+)
+_QUANTILE_MODELS = (
+    HISTORICAL_SIMULATION_MODEL_ID,
+    *_CANDIDATES,
+)
+_MODEL_COLORS = {
+    HISTORICAL_VARIANCE_MODEL_ID: "#7a7a7a",
+    HISTORICAL_SIMULATION_MODEL_ID: "#8a5a9e",
+    EWMA_MODEL_ID: "#0072b2",
+    GAUSSIAN_GARCH_MODEL_ID: "#d55e00",
+    STUDENT_T_GARCH_MODEL_ID: "#009e73",
+}
+_FORECAST_KEYS = ("series_id", "forecast_origin", "target_date")
 _FIGURE_NAMES = (
+    "forecast_volatility_history.png",
+    "var_exception_history.png",
+    "rolling_model_advantage.png",
     "variance_qlike_comparison.png",
     "var_pinball_comparison.png",
     "forecast_availability.png",
@@ -107,6 +131,28 @@ def generate_report(experiment_dir: Path) -> ReportResult:
             tables["availability"],
             temporary_figures / "forecast_availability.png",
         )
+        rolling_window = int(
+            _configuration_number(
+                _configuration_section(effective_configuration, "historical"),
+                "variance_window",
+            )
+        )
+        _plot_forecast_volatility_history(
+            tables["forecasts"],
+            tables["realizations"],
+            temporary_figures / "forecast_volatility_history.png",
+        )
+        _plot_var_exception_history(
+            tables["forecasts"],
+            tables["realizations"],
+            temporary_figures / "var_exception_history.png",
+        )
+        _plot_rolling_model_advantage(
+            tables["forecasts"],
+            tables["realizations"],
+            window=rolling_window,
+            path=temporary_figures / "rolling_model_advantage.png",
+        )
         report = _render_report(tables, effective_configuration)
         (temporary / "research_report.md").write_text(
             report,
@@ -145,6 +191,7 @@ def _load_tables(directory: Path) -> dict[str, pd.DataFrame]:
         "periods": pd.read_csv(directory / "period_breakdowns.csv"),
         "diagnostics": pd.read_parquet(directory / "fit_diagnostics.parquet"),
         "forecasts": pd.read_parquet(directory / "forecasts.parquet"),
+        "realizations": pd.read_parquet(directory / "realizations.parquet"),
     }
     required = {
         "availability": {"period", "series_id", "model_id", "metric", "value"},
@@ -173,7 +220,27 @@ def _load_tables(directory: Path) -> dict[str, pd.DataFrame]:
             "converged",
             "retry_used",
         },
-        "forecasts": {"model_id", "status", "error_code"},
+        "forecasts": {
+            "model_id",
+            "series_id",
+            "forecast_origin",
+            "target_date",
+            "status",
+            "error_code",
+            "variance",
+            "volatility",
+            "return_quantile_0_05",
+            "var_0_95",
+        },
+        "realizations": {
+            "series_id",
+            "forecast_origin",
+            "target_date",
+            "simple_return",
+            "squared_return",
+            "loss",
+            "period",
+        },
     }
     for name, columns in required.items():
         missing = columns - set(tables[name].columns)
@@ -201,13 +268,7 @@ def _load_effective_configuration(directory: Path) -> dict[str, Any]:
 
 
 def _report_identity(effective: dict[str, Any]) -> tuple[str, str]:
-    experiment = effective.get("experiment", {})
-    protocol_version = (
-        str(experiment.get("protocol_version", "unknown"))
-        if isinstance(experiment, dict)
-        else "unknown"
-    )
-    title = f"# Market Risk Forecasting Engine - Protocol v{protocol_version} Report"
+    title = "# Market Risk Forecasting Engine Research Report"
 
     upstream = effective.get("upstream", {})
     instruments = upstream.get("instruments", []) if isinstance(upstream, dict) else []
@@ -241,11 +302,20 @@ def _render_report(
         "validation",
         "pinball_loss_0_05",
     )
-    direct_answer = _direct_answer(qlike_test, pinball_test)
+    historical = _configuration_section(effective_configuration, "historical")
+    ewma = _configuration_section(effective_configuration, "ewma")
+    garch = _configuration_section(effective_configuration, "garch")
+    evaluation = _configuration_section(effective_configuration, "evaluation")
+    experiment = _configuration_section(effective_configuration, "experiment")
+    interval_label = _percentage_label(
+        _configuration_number(evaluation, "bootstrap_confidence")
+    )
+    direct_answer = _direct_answer(qlike_test, pinball_test, interval_label)
     availability_table = _availability_rows(availability)
     coverage_table = _coverage_rows(coverage)
     diagnostic_table = _diagnostic_rows(diagnostics, forecasts)
     title, series_text = _report_identity(effective_configuration)
+    rolling_window = int(_configuration_number(historical, "variance_window"))
     portfolio_limitation = (
         "The portfolio series is a constant-weight return projection rather than a "
         "holdings ledger. "
@@ -264,15 +334,47 @@ def _render_report(
         "This is historical pseudo-out-of-sample evidence, not live or "
         "prospective forecasting. Lower QLIKE and pinball loss are better.",
         "",
+        "## Forecasts through time",
+        "",
+        "One-session variance cannot be observed directly. The gray points show "
+        "the absolute next-session return as a noisy realized-volatility proxy; "
+        "the black line is a 21-session rolling root-mean-square return shown only "
+        "as smoother context. Colored lines are the one-session-ahead volatility "
+        "forecasts, and gaps show unavailable or failed forecasts.",
+        "",
+        "![Forecast volatility and realized-return history]"
+        "(figures/forecast_volatility_history.png)",
+        "",
+        "## 95% VaR through time",
+        "",
+        "The gray line is the realized daily loss and the colored lines are the "
+        "one-session-ahead 95% VaR forecasts. An outlined marker in a model's "
+        "color identifies a strict exception for that model: realized loss was "
+        "greater than its VaR forecast.",
+        "",
+        "![Realized loss, VaR forecasts, and exceptions]"
+        "(figures/var_exception_history.png)",
+        "",
+        "## Rolling model advantage",
+        "",
+        f"Each line is the candidate's {rolling_window}-session rolling mean loss "
+        "minus its historical benchmark loss, calculated on pairwise common "
+        "valid forecasts and averaged across available series by target date. "
+        "Values below zero mean the candidate performed better over that window; "
+        "values above zero mean the benchmark performed better.",
+        "",
+        "![Rolling candidate-minus-benchmark loss differences]"
+        "(figures/rolling_model_advantage.png)",
+        "",
         "## Final-test variance comparison",
         "",
-        _comparison_markdown(qlike_test),
+        _comparison_markdown(qlike_test, interval_label),
         "",
         "![Final-test QLIKE comparison](figures/variance_qlike_comparison.png)",
         "",
         "## Final-test 95% VaR comparison",
         "",
-        _comparison_markdown(pinball_test),
+        _comparison_markdown(pinball_test, interval_label),
         "",
         "![Final-test VaR pinball comparison](figures/var_pinball_comparison.png)",
         "",
@@ -280,11 +382,11 @@ def _render_report(
         "",
         "Variance QLIKE:",
         "",
-        _comparison_markdown(qlike_validation),
+        _comparison_markdown(qlike_validation, interval_label),
         "",
         "95% VaR pinball loss:",
         "",
-        _comparison_markdown(pinball_validation),
+        _comparison_markdown(pinball_validation, interval_label),
         "",
         "Validation and final-test aggregates are kept separate; validation "
         "results are not pooled into the final-test claims.",
@@ -346,19 +448,27 @@ def _render_report(
         "",
         f"- Series: {series_text}.",
         "- Forecast horizon: one observed session.",
-        "- Variance benchmark: 252-return sample variance.",
-        "- VaR benchmark: 500-return historical simulation.",
-        "- Candidates: EWMA, Gaussian GARCH(1,1), Student-t GARCH(1,1).",
+        f"- Variance benchmark: {historical['variance_window']}-return sample "
+        "variance.",
+        f"- VaR benchmark: {historical['var_window']}-return historical "
+        f"simulation using {historical['quantile_method']} interpolation.",
+        f"- EWMA: lambda {ewma['lambda']} with a "
+        f"{ewma['initialization_window']}-return initialization.",
+        "- GARCH candidates: zero-mean Gaussian and Student-t GARCH(1,1), "
+        f"{garch['estimation_window']}-return estimation windows, refitted every "
+        f"{garch['refit_every_origins']} eligible origins.",
         "- Primary variance score: QLIKE.",
         "- Primary VaR score: 5% lower-tail pinball loss.",
-        "- Uncertainty: moving-block bootstrap, block length 20, 2,000 "
-        "resamples, seed 42.",
+        "- Uncertainty: moving-block bootstrap, block length "
+        f"{evaluation['bootstrap_block_length']}, "
+        f"{evaluation['bootstrap_resamples']} resamples, "
+        f"seed {experiment['random_seed']}, {interval_label} intervals.",
         "- Every reported aggregate is traceable through the saved forecasts, "
         "realizations, score tables, experiment manifest, and run manifest.",
         "",
         "## Limitations",
         "",
-        "Squared one-session returns are noisy realized-variance proxies. The "
+        "Squared one-session returns are noisy realized-variance proxies. "
         + portfolio_limitation
         + "The study excludes costs, taxes, financing, Expected "
         "Shortfall scoring, asymmetric or multivariate volatility models, and "
@@ -367,6 +477,31 @@ def _render_report(
         "",
     ]
     return "\n".join(sections)
+
+
+def _configuration_section(
+    effective: dict[str, Any],
+    name: str,
+) -> dict[str, Any]:
+    section = effective.get(name)
+    if not isinstance(section, dict):
+        raise ArtifactReconciliationFailedError(
+            f"Effective configuration is missing the [{name}] section."
+        )
+    return section
+
+
+def _configuration_number(section: dict[str, Any], key: str) -> float:
+    value = section.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ArtifactReconciliationFailedError(
+            f"Effective configuration value {key!r} must be numeric."
+        )
+    return float(value)
+
+
+def _percentage_label(value: float) -> str:
+    return f"{value * 100:g}%"
 
 
 def _comparison_rows(
@@ -386,23 +521,30 @@ def _comparison_rows(
 def _direct_answer(
     qlike_test: pd.DataFrame,
     pinball_test: pd.DataFrame,
+    interval_label: str,
 ) -> str:
     return (
         _direction_sentence(
             qlike_test,
             "one-session variance QLIKE",
+            interval_label,
         )
         + " "
         + _direction_sentence(
             pinball_test,
             "95% VaR pinball loss",
+            interval_label,
         )
         + " The tables report effect sizes, paired counts, and bootstrap "
         "intervals; no result is described as live, regulatory, or a guarantee."
     )
 
 
-def _direction_sentence(frame: pd.DataFrame, label: str) -> str:
+def _direction_sentence(
+    frame: pd.DataFrame,
+    label: str,
+    interval_label: str,
+) -> str:
     available = frame.loc[frame["paired_count"].gt(0)]
     lower = [
         _MODEL_LABELS[str(row.model_id)]
@@ -421,11 +563,11 @@ def _direction_sentence(frame: pd.DataFrame, label: str) -> str:
     return (
         f"On the aggregate final-test common panel, {lower_text} had lower "
         f"{label} than their historical benchmark; {interval_text} also had a "
-        "95% bootstrap interval entirely below zero."
+        f"{interval_label} bootstrap interval entirely below zero."
     )
 
 
-def _comparison_markdown(frame: pd.DataFrame) -> str:
+def _comparison_markdown(frame: pd.DataFrame, interval_label: str) -> str:
     rows = [
         (
             _MODEL_LABELS.get(str(row.model_id), str(row.model_id)),
@@ -443,7 +585,7 @@ def _comparison_markdown(frame: pd.DataFrame) -> str:
             "Candidate",
             "Paired N",
             "Mean difference",
-            "95% interval",
+            f"{interval_label} interval",
             "Median difference",
             "Bootstrap fraction < 0",
         ),
@@ -602,6 +744,372 @@ def _plot_availability(availability: pd.DataFrame, path: Path) -> None:
     axis.set_title("Final-test forecast availability")
     axis.grid(axis="y", alpha=0.25)
     figure.tight_layout()
+    figure.savefig(
+        path,
+        dpi=150,
+        metadata={"Software": "market-risk-forecasting-engine"},
+    )
+    plt.close(figure)
+
+
+def _plot_forecast_volatility_history(
+    forecasts: pd.DataFrame,
+    realizations: pd.DataFrame,
+    path: Path,
+) -> None:
+    actual = _realizations_for_forecasts(forecasts, realizations)
+    actual["absolute_return_percent"] = actual["simple_return"].abs() * 100.0
+    actual["rolling_rms_percent"] = (
+        actual.groupby("series_id", sort=False)["squared_return"]
+        .transform(lambda values: values.rolling(21, min_periods=5).mean())
+        .pow(0.5)
+        * 100.0
+    )
+    series_ids = _ordered_series_ids(actual)
+    figure, axes = plt.subplots(
+        len(series_ids),
+        1,
+        figsize=(12.0, max(4.5, 2.6 * len(series_ids))),
+        sharex=True,
+        squeeze=False,
+    )
+    for position, series_id in enumerate(series_ids):
+        axis = axes[position, 0]
+        series_actual = actual.loc[actual["series_id"].eq(series_id)]
+        axis.scatter(
+            series_actual["target_date"],
+            series_actual["absolute_return_percent"],
+            color="#9b9b9b",
+            alpha=0.28,
+            s=7,
+            linewidths=0,
+            label="Absolute next-session return" if position == 0 else None,
+            zorder=1,
+        )
+        axis.plot(
+            series_actual["target_date"],
+            series_actual["rolling_rms_percent"],
+            color="#171717",
+            linewidth=1.1,
+            label="21-session realized RMS" if position == 0 else None,
+            zorder=2,
+        )
+        for model_id in _VARIANCE_MODELS:
+            model = _model_history(forecasts, series_id, model_id)
+            volatility = pd.to_numeric(model["volatility"], errors="coerce").where(
+                model["status"].eq("ok")
+            )
+            axis.plot(
+                model["target_date"],
+                volatility * 100.0,
+                color=_MODEL_COLORS[model_id],
+                linewidth=1.0,
+                label=_MODEL_LABELS[model_id] if position == 0 else None,
+                zorder=3,
+            )
+        axis.set_ylabel(f"{series_id}\nPercent")
+        axis.grid(alpha=0.2)
+    axes[-1, 0].set_xlabel("Target date")
+    figure.suptitle(
+        "One-session volatility forecasts and realized-return context",
+        y=0.995,
+    )
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    figure.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.96),
+        ncol=3,
+        frameon=False,
+    )
+    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.9))
+    _save_figure(figure, path)
+
+
+def _plot_var_exception_history(
+    forecasts: pd.DataFrame,
+    realizations: pd.DataFrame,
+    path: Path,
+) -> None:
+    actual = _realizations_for_forecasts(forecasts, realizations)
+    actual["loss_percent"] = actual["loss"] * 100.0
+    series_ids = _ordered_series_ids(actual)
+    markers = {
+        HISTORICAL_SIMULATION_MODEL_ID: "o",
+        EWMA_MODEL_ID: "s",
+        GAUSSIAN_GARCH_MODEL_ID: "^",
+        STUDENT_T_GARCH_MODEL_ID: "D",
+    }
+    figure, axes = plt.subplots(
+        len(series_ids),
+        1,
+        figsize=(12.0, max(4.5, 2.6 * len(series_ids))),
+        sharex=True,
+        squeeze=False,
+    )
+    for position, series_id in enumerate(series_ids):
+        axis = axes[position, 0]
+        series_actual = actual.loc[actual["series_id"].eq(series_id)]
+        axis.plot(
+            series_actual["target_date"],
+            series_actual["loss_percent"],
+            color="#8a8a8a",
+            linewidth=0.65,
+            alpha=0.7,
+            label="Realized daily loss" if position == 0 else None,
+            zorder=1,
+        )
+        realization_values = series_actual.loc[:, [*_FORECAST_KEYS, "loss_percent"]]
+        for model_id in _QUANTILE_MODELS:
+            model = _model_history(forecasts, series_id, model_id)
+            value_at_risk = pd.to_numeric(model["var_0_95"], errors="coerce").where(
+                model["status"].eq("ok")
+            )
+            axis.plot(
+                model["target_date"],
+                value_at_risk * 100.0,
+                color=_MODEL_COLORS[model_id],
+                linewidth=1.0,
+                label=_MODEL_LABELS[model_id] if position == 0 else None,
+                zorder=2,
+            )
+            joined = model.loc[:, list(_FORECAST_KEYS)].copy()
+            joined["var_percent"] = value_at_risk * 100.0
+            joined = joined.merge(
+                realization_values,
+                on=list(_FORECAST_KEYS),
+                how="inner",
+                validate="one_to_one",
+            )
+            exceptions = joined.loc[joined["loss_percent"].gt(joined["var_percent"])]
+            axis.scatter(
+                exceptions["target_date"],
+                exceptions["loss_percent"],
+                facecolors="none",
+                edgecolors=_MODEL_COLORS[model_id],
+                marker=markers[model_id],
+                s=28,
+                linewidths=0.9,
+                zorder=3,
+            )
+        axis.axhline(0.0, color="#b5b5b5", linewidth=0.6)
+        axis.set_ylabel(f"{series_id}\nPercent")
+        axis.grid(alpha=0.2)
+    axes[-1, 0].set_xlabel("Target date")
+    figure.suptitle(
+        "Realized daily loss, 95% VaR forecasts, and exceptions",
+        y=0.995,
+    )
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    figure.legend(
+        handles,
+        labels,
+        loc="upper center",
+        bbox_to_anchor=(0.5, 0.96),
+        ncol=3,
+        frameon=False,
+    )
+    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.9))
+    _save_figure(figure, path)
+
+
+def _plot_rolling_model_advantage(
+    forecasts: pd.DataFrame,
+    realizations: pd.DataFrame,
+    *,
+    window: int,
+    path: Path,
+) -> None:
+    differences = _rolling_loss_differences(
+        forecasts,
+        realizations,
+        window=window,
+    )
+    metrics = (
+        ("qlike", "Variance QLIKE difference vs historical variance"),
+        ("pinball_loss_0_05", "95% VaR pinball difference vs historical simulation"),
+    )
+    figure, axes = plt.subplots(2, 1, figsize=(12.0, 7.2), sharex=True)
+    for axis, (metric, title) in zip(axes, metrics, strict=True):
+        selected = differences.loc[differences["metric"].eq(metric)]
+        for model_id in _CANDIDATES:
+            model = selected.loc[selected["model_id"].eq(model_id)]
+            axis.plot(
+                model["target_date"],
+                model["rolling_difference"],
+                color=_MODEL_COLORS[model_id],
+                linewidth=1.25,
+                label=_MODEL_LABELS[model_id],
+            )
+        axis.axhline(0.0, color="#7a2525", linewidth=0.9)
+        axis.set_title(title)
+        axis.set_ylabel("Candidate minus benchmark")
+        axis.grid(alpha=0.2)
+    axes[0].legend(loc="best", frameon=False)
+    axes[-1].set_xlabel("Target date (below zero means candidate better)")
+    figure.suptitle(f"Rolling {window}-session model advantage")
+    figure.tight_layout(rect=(0.0, 0.0, 1.0, 0.96))
+    _save_figure(figure, path)
+
+
+def _rolling_loss_differences(
+    forecasts: pd.DataFrame,
+    realizations: pd.DataFrame,
+    *,
+    window: int,
+) -> pd.DataFrame:
+    if window < 1:
+        raise ArtifactReconciliationFailedError(
+            "Rolling comparison window must be at least one session."
+        )
+    realization_values = realizations.loc[:, [*_FORECAST_KEYS, "simple_return"]].copy()
+    rows: list[pd.DataFrame] = []
+    specifications = (
+        (
+            "qlike",
+            HISTORICAL_VARIANCE_MODEL_ID,
+            "variance",
+        ),
+        (
+            "pinball_loss_0_05",
+            HISTORICAL_SIMULATION_MODEL_ID,
+            "return_quantile_0_05",
+        ),
+    )
+    for metric, benchmark_id, value_column in specifications:
+        benchmark = _valid_model_values(forecasts, benchmark_id, value_column)
+        for model_id in _CANDIDATES:
+            candidate = _valid_model_values(forecasts, model_id, value_column)
+            paired = candidate.merge(
+                benchmark,
+                on=list(_FORECAST_KEYS),
+                how="inner",
+                suffixes=("_candidate", "_benchmark"),
+                validate="one_to_one",
+            ).merge(
+                realization_values,
+                on=list(_FORECAST_KEYS),
+                how="inner",
+                validate="one_to_one",
+            )
+            if metric == "qlike":
+                candidate_variance = paired[f"{value_column}_candidate"]
+                benchmark_variance = paired[f"{value_column}_benchmark"]
+                realized_variance = paired["simple_return"].pow(2)
+                paired["difference"] = (
+                    np.log(candidate_variance)
+                    + realized_variance / candidate_variance
+                    - np.log(benchmark_variance)
+                    - realized_variance / benchmark_variance
+                )
+            else:
+                realized_return = paired["simple_return"]
+                candidate_residual = (
+                    realized_return - paired[f"{value_column}_candidate"]
+                )
+                benchmark_residual = (
+                    realized_return - paired[f"{value_column}_benchmark"]
+                )
+                candidate_loss = candidate_residual * np.where(
+                    candidate_residual.lt(0.0), -0.95, 0.05
+                )
+                benchmark_loss = benchmark_residual * np.where(
+                    benchmark_residual.lt(0.0), -0.95, 0.05
+                )
+                paired["difference"] = candidate_loss - benchmark_loss
+            finite = np.isfinite(paired["difference"].to_numpy(dtype=float))
+            daily = (
+                paired.loc[finite, ["target_date", "difference"]]
+                .groupby("target_date", as_index=False, sort=True)
+                .mean()
+            )
+            daily["rolling_difference"] = (
+                daily["difference"]
+                .rolling(
+                    window,
+                    min_periods=window,
+                )
+                .mean()
+            )
+            daily["metric"] = metric
+            daily["model_id"] = model_id
+            rows.append(
+                daily.loc[
+                    :, ["metric", "model_id", "target_date", "rolling_difference"]
+                ]
+            )
+    if not rows:
+        return pd.DataFrame(
+            columns=("metric", "model_id", "target_date", "rolling_difference")
+        )
+    result = pd.concat(rows, ignore_index=True)
+    result["target_date"] = pd.to_datetime(result["target_date"])
+    return result.sort_values(
+        ["metric", "model_id", "target_date"], kind="stable"
+    ).reset_index(drop=True)
+
+
+def _valid_model_values(
+    forecasts: pd.DataFrame,
+    model_id: str,
+    value_column: str,
+) -> pd.DataFrame:
+    selected = forecasts.loc[
+        forecasts["model_id"].eq(model_id) & forecasts["status"].eq("ok"),
+        [*_FORECAST_KEYS, value_column],
+    ].copy()
+    selected[value_column] = pd.to_numeric(selected[value_column], errors="coerce")
+    valid = np.isfinite(selected[value_column].to_numpy(dtype=float))
+    if value_column == "variance":
+        valid &= selected[value_column].to_numpy(dtype=float) > 0.0
+    return selected.loc[valid]
+
+
+def _realizations_for_forecasts(
+    forecasts: pd.DataFrame,
+    realizations: pd.DataFrame,
+) -> pd.DataFrame:
+    keys = forecasts.loc[:, list(_FORECAST_KEYS)].drop_duplicates()
+    actual = realizations.merge(
+        keys,
+        on=list(_FORECAST_KEYS),
+        how="inner",
+        validate="one_to_one",
+    ).copy()
+    actual["target_date"] = pd.to_datetime(actual["target_date"])
+    actual = actual.sort_values(
+        ["series_id", "target_date"], kind="stable"
+    ).reset_index(drop=True)
+    if actual.empty:
+        raise ArtifactReconciliationFailedError(
+            "Saved artifacts contain no realizations matching forecasts."
+        )
+    return actual
+
+
+def _model_history(
+    forecasts: pd.DataFrame,
+    series_id: str,
+    model_id: str,
+) -> pd.DataFrame:
+    model = forecasts.loc[
+        forecasts["series_id"].eq(series_id) & forecasts["model_id"].eq(model_id)
+    ].copy()
+    model["target_date"] = pd.to_datetime(model["target_date"])
+    return model.sort_values("target_date", kind="stable")
+
+
+def _ordered_series_ids(frame: pd.DataFrame) -> list[str]:
+    series_ids = [str(value) for value in frame["series_id"].drop_duplicates()]
+    if not series_ids:
+        raise ArtifactReconciliationFailedError(
+            "Saved artifacts contain no series to plot."
+        )
+    return series_ids
+
+
+def _save_figure(figure: Any, path: Path) -> None:
     figure.savefig(
         path,
         dpi=150,

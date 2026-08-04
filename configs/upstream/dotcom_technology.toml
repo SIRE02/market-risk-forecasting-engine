@@ -1,0 +1,12 @@
+[analysis]
+provider = "yahoo"
+tickers = ["SPY", "MSFT", "CSCO", "AAPL"]
+start_date = "1993-01-22"
+end_date = "2026-08-01"
+rolling_window = 252
+rolling_min_observations = 252
+observations_per_year = 252
+quantiles = [0.05, 0.25, 0.75, 0.95]
+quantile_method = "linear"
+downside_target = 0.0
+output_dir = "data/upstream/spy-msft-csco-aapl-1993-2026"

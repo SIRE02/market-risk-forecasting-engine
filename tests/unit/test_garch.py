@@ -10,6 +10,7 @@ import pytest
 from scipy.stats import norm, t
 
 from market_risk_forecasting.errors import (
+    InputValueInvalidError,
     InvalidStudentTDofError,
     NonstationaryParametersError,
 )
@@ -62,6 +63,34 @@ def test_independent_gaussian_recursion_and_decimal_scaling() -> None:
     assert next_state.variance_scaled == pytest.approx(expected_scaled_variance)
     assert forecast.variance == pytest.approx(expected_decimal_variance)
     assert forecast.volatility == pytest.approx(math.sqrt(expected_decimal_variance))
+
+
+def test_custom_garch_controls_are_supported() -> None:
+    model = GarchModel(
+        distribution="gaussian",
+        estimation_window=750,
+        input_scale=10.0,
+        retry_count=0,
+        stationarity_tolerance=1e-6,
+    )
+
+    assert model.estimation_window == 750
+    assert model.input_scale == 10.0
+    assert model.retry_count == 0
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"estimation_window": 1},
+        {"input_scale": 0.0},
+        {"retry_count": 2},
+        {"stationarity_tolerance": 1.0},
+    ],
+)
+def test_invalid_garch_controls_fail(overrides: dict[str, Any]) -> None:
+    with pytest.raises(InputValueInvalidError):
+        GarchModel(distribution="gaussian", **overrides)
 
 
 def test_gaussian_quantiles_use_standard_normal() -> None:
@@ -127,7 +156,7 @@ def test_invalid_persistence_and_student_t_dof_fail() -> None:
         )
 
 
-def test_fit_retries_once_with_the_protocol_starting_values(
+def test_fit_retries_once_with_the_engine_starting_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, np.ndarray[Any, np.dtype[np.float64]] | None]] = []

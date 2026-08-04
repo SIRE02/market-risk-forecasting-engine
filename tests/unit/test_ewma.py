@@ -8,6 +8,7 @@ import pytest
 from scipy.stats import norm
 
 from market_risk_forecasting.errors import (
+    InputValueInvalidError,
     InsufficientHistoryError,
     NonpositiveVarianceError,
 )
@@ -41,6 +42,27 @@ def test_hand_calculated_recursion() -> None:
 
     expected = 0.94 * 0.0004 + 0.06 * latest_return**2
     assert updated.variance == pytest.approx(expected)
+
+
+def test_custom_decay_and_initialization_window_are_supported() -> None:
+    returns = _returns(300)
+    model = EwmaModel(lambda_=0.97, initialization_window=126)
+
+    path = model.forecast_path(returns)
+
+    assert path.iloc[:125]["variance"].isna().all()
+    assert path.iloc[125]["variance"] == pytest.approx(
+        float(returns.iloc[:126].var(ddof=1))
+    )
+
+
+@pytest.mark.parametrize(
+    ("lambda_", "window"),
+    [(0.0, 252), (1.0, 252), (0.94, 1)],
+)
+def test_invalid_ewma_controls_fail(lambda_: float, window: int) -> None:
+    with pytest.raises(InputValueInvalidError):
+        EwmaModel(lambda_=lambda_, initialization_window=window)
 
 
 def test_zero_returns_decay_geometrically() -> None:

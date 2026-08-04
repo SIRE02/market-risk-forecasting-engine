@@ -345,6 +345,7 @@ def _forecast_frame(
     variance_model = HistoricalVarianceModel(window=config.historical.variance_window)
     simulation_model = HistoricalSimulationModel(
         window=config.historical.var_window,
+        quantile_method=config.historical.quantile_method,
     )
     forecast_paths: dict[tuple[str, str], pd.DataFrame] = {}
     for series_id in dataset.series_order:
@@ -472,7 +473,7 @@ def _ewma_forecast_frame(
             "degrees_of_freedom": None,
             "parameter_persistence": config.ewma.lambda_,
             "converged": True,
-            "optimizer_status": "not_applicable_fixed_parameter",
+            "optimizer_status": "not_applicable_recursive_model",
             "retry_used": False,
             "runtime_seconds": 0.0,
             "scaling_factor": 1.0,

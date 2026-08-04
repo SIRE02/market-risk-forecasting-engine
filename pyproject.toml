@@ -50,7 +50,6 @@ exclude = [
     ".venv",
     "build",
     "dist",
-    "docs/market-risk-forecasting-engine-implementation-spec.md",
 ]
 
 [tool.ruff.lint]

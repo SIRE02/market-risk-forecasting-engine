@@ -1,8 +1,7 @@
 [experiment]
-experiment_id = "risk-v02-aapl-msft-gld-tlt"
-protocol_version = "2.0"
+experiment_id = "risk-aapl-msft-gld-tlt"
 input_run_dir = "data/upstream/aapl-msft-gld-tlt-2010-2025"
-output_dir = "outputs/risk-v02-aapl-msft-gld-tlt"
+output_dir = "outputs/risk-aapl-msft-gld-tlt"
 random_seed = 42
 
 [upstream]
@@ -41,8 +40,6 @@ retry_count = 1
 stationarity_tolerance = 1e-8
 
 [evaluation]
-var_confidence_levels = [0.95, 0.99]
-primary_var_confidence = 0.95
 bootstrap_block_length = 20
 bootstrap_resamples = 2000
 bootstrap_confidence = 0.95

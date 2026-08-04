@@ -135,9 +135,9 @@ def _evaluation_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
         }
     )
     model_ids = (
-        "historical_variance_252",
-        "historical_simulation_500",
-        "ewma_lambda_0_94",
+        "historical_variance",
+        "historical_simulation",
+        "ewma",
         "garch_1_1_gaussian",
         "garch_1_1_student_t",
     )
@@ -145,11 +145,11 @@ def _evaluation_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
     for model_id in model_ids:
         for position, (origin, target) in enumerate(zip(origins, dates, strict=True)):
             failed = model_id == "garch_1_1_student_t" and position == 2
-            has_variance = model_id != "historical_simulation_500"
-            has_quantile = model_id != "historical_variance_252"
+            has_variance = model_id != "historical_simulation"
+            has_quantile = model_id != "historical_variance"
             rows.append(
                 {
-                    "experiment_id": "risk-v02-test",
+                    "experiment_id": "risk-test",
                     "series_id": "SPY",
                     "model_id": model_id,
                     "forecast_origin": origin,

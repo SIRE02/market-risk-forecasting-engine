@@ -134,7 +134,7 @@ def test_expanding_windows_keep_the_initial_training_start(
         iter_expanding_forecast_windows(
             index=index,
             series_id="SPY",
-            model_id="ewma_lambda_0_94",
+            model_id="ewma",
             initial_observations=5,
             periods=periods,
         )

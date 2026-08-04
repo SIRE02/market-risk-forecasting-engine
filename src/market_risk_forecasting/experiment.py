@@ -74,6 +74,9 @@ NUMERICAL_ARTIFACT_NAMES = (
 )
 REPORT_ARTIFACT_NAMES = (
     "research_report.md",
+    "figures/forecast_volatility_history.png",
+    "figures/var_exception_history.png",
+    "figures/rolling_model_advantage.png",
     "figures/variance_qlike_comparison.png",
     "figures/var_pinball_comparison.png",
     "figures/forecast_availability.png",

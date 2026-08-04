@@ -8,9 +8,11 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 from market_risk_forecasting.errors import ConfigInvalidError
+
+type QuantileMethod = Literal["linear", "lower", "higher", "nearest", "midpoint"]
 
 _TOP_LEVEL_KEYS = {
     "experiment",
@@ -30,7 +32,6 @@ class ExperimentConfig:
     input_run_dir: Path
     output_dir: Path
     random_seed: int
-    protocol_version: str
 
 
 @dataclass(frozen=True)
@@ -68,7 +69,7 @@ class PortfolioProxyConfig:
 class HistoricalConfig:
     variance_window: int
     var_window: int
-    quantile_method: str
+    quantile_method: QuantileMethod
 
 
 @dataclass(frozen=True)
@@ -88,8 +89,6 @@ class GarchConfig:
 
 @dataclass(frozen=True)
 class EvaluationConfig:
-    var_confidence_levels: tuple[float, ...]
-    primary_var_confidence: float
     bootstrap_block_length: int
     bootstrap_resamples: int
     bootstrap_confidence: float
@@ -124,9 +123,6 @@ class ForecastConfig:
                     "weights": dict(self.portfolio_proxy.weights),
                 }
             )
-        raw["evaluation"]["var_confidence_levels"] = list(
-            self.evaluation.var_confidence_levels
-        )
         return raw
 
 
@@ -297,25 +293,6 @@ def _portfolio_proxy(
     )
 
 
-def _number_sequence(
-    raw: Mapping[str, Any], key: str, context: str
-) -> tuple[float, ...]:
-    value = raw[key]
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise _fail(f"{context}.{key} must be an array of numbers.")
-    result: list[float] = []
-    for item in value:
-        if isinstance(item, bool) or not isinstance(item, (int, float)):
-            raise _fail(f"{context}.{key} must be an array of finite numbers.")
-        numeric = float(item)
-        if not math.isfinite(numeric):
-            raise _fail(f"{context}.{key} must be an array of finite numbers.")
-        result.append(numeric)
-    if not result:
-        raise _fail(f"{context}.{key} must not be empty.")
-    return tuple(result)
-
-
 def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
     _validate_keys(raw, context="configuration", expected=_TOP_LEVEL_KEYS)
 
@@ -324,21 +301,16 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         "experiment",
         {
             "experiment_id",
-            "protocol_version",
             "input_run_dir",
             "output_dir",
             "random_seed",
         },
     )
-    protocol_version = _string(experiment_raw, "protocol_version", "experiment")
-    if protocol_version != "2.0":
-        raise _fail("experiment.protocol_version must be '2.0'.")
     experiment = ExperimentConfig(
         experiment_id=_string(experiment_raw, "experiment_id", "experiment"),
         input_run_dir=Path(_string(experiment_raw, "input_run_dir", "experiment")),
         output_dir=Path(_string(experiment_raw, "output_dir", "experiment")),
         random_seed=_integer(experiment_raw, "random_seed", "experiment"),
-        protocol_version=protocol_version,
     )
     if experiment.input_run_dir == experiment.output_dir:
         raise _fail("experiment.input_run_dir and output_dir must differ.")
@@ -435,13 +407,21 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             historical_raw, "variance_window", "historical", minimum=2
         ),
         var_window=_integer(historical_raw, "var_window", "historical", minimum=2),
-        quantile_method=_string(historical_raw, "quantile_method", "historical"),
+        quantile_method=cast(
+            QuantileMethod,
+            _string(historical_raw, "quantile_method", "historical"),
+        ),
     )
-    if historical.quantile_method != "linear":
-        raise _fail("historical.quantile_method must be linear.")
-    if historical.variance_window != 252 or historical.var_window != 500:
+    if historical.quantile_method not in {
+        "linear",
+        "lower",
+        "higher",
+        "nearest",
+        "midpoint",
+    }:
         raise _fail(
-            "Protocol 2.0 requires historical.variance_window=252 and var_window=500."
+            "historical.quantile_method must be one of linear, lower, higher, "
+            "nearest, or midpoint."
         )
 
     ewma_raw = _section(raw, "ewma", {"lambda", "initialization_window"})
@@ -459,11 +439,6 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             ewma_raw, "initialization_window", "ewma", minimum=2
         ),
     )
-    if ewma.lambda_ != 0.94 or ewma.initialization_window != 252:
-        raise _fail(
-            "Protocol 2.0 requires ewma.lambda=0.94 and initialization_window=252."
-        )
-
     garch_raw = _section(
         raw,
         "garch",
@@ -492,47 +467,21 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             garch_raw, "stationarity_tolerance", "garch", minimum=0.0
         ),
     )
-    if (
-        garch.estimation_window != 1250
-        or garch.refit_every_origins != 20
-        or garch.input_scale != 100.0
-        or garch.retry_count != 1
-        or garch.stationarity_tolerance != 1e-8
-    ):
-        raise _fail(
-            "Protocol 2.0 requires garch.estimation_window=1250, "
-            "refit_every_origins=20, input_scale=100.0, retry_count=1, "
-            "and stationarity_tolerance=1e-8."
-        )
+    if garch.retry_count > 1:
+        raise _fail("garch.retry_count must be zero or one.")
+    if garch.stationarity_tolerance >= 1.0:
+        raise _fail("garch.stationarity_tolerance must be less than one.")
 
     evaluation_raw = _section(
         raw,
         "evaluation",
         {
-            "var_confidence_levels",
-            "primary_var_confidence",
             "bootstrap_block_length",
             "bootstrap_resamples",
             "bootstrap_confidence",
         },
     )
-    confidence_levels = _number_sequence(
-        evaluation_raw, "var_confidence_levels", "evaluation"
-    )
-    if any(level <= 0.0 or level >= 1.0 for level in confidence_levels):
-        raise _fail("evaluation.var_confidence_levels must lie strictly in (0, 1).")
-    primary_confidence = _number(
-        evaluation_raw,
-        "primary_var_confidence",
-        "evaluation",
-        minimum=0.0,
-        maximum=1.0,
-        strict_minimum=True,
-        strict_maximum=True,
-    )
     evaluation = EvaluationConfig(
-        var_confidence_levels=confidence_levels,
-        primary_var_confidence=primary_confidence,
         bootstrap_block_length=_integer(
             evaluation_raw,
             "bootstrap_block_length",
@@ -552,24 +501,6 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             strict_maximum=True,
         ),
     )
-    if primary_confidence not in confidence_levels:
-        raise _fail(
-            "evaluation.primary_var_confidence must be listed in var_confidence_levels."
-        )
-    if (
-        confidence_levels != (0.95, 0.99)
-        or primary_confidence != 0.95
-        or evaluation.bootstrap_block_length != 20
-        or evaluation.bootstrap_resamples != 2000
-        or evaluation.bootstrap_confidence != 0.95
-        or experiment.random_seed != 42
-    ):
-        raise _fail(
-            "Protocol 2.0 requires evaluation levels [0.95, 0.99], primary level "
-            "0.95, bootstrap block length 20, 2000 resamples, confidence "
-            "0.95, and random seed 42."
-        )
-
     return ForecastConfig(
         experiment=experiment,
         upstream=upstream,

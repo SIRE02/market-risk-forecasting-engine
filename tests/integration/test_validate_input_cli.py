@@ -22,7 +22,7 @@ def test_validate_input_cli_constructs_series_and_writes_nothing(
             'input_run_dir = "data/fixtures/upstream_run"',
             f'input_run_dir = "{fixture.as_posix()}"',
         ).replace(
-            'output_dir = "outputs/risk-v02-example"',
+            'output_dir = "outputs/risk-example"',
             f'output_dir = "{output_dir.as_posix()}"',
         ),
         encoding="utf-8",

@@ -16,8 +16,10 @@ from market_risk_forecasting.errors import (
     NonpositiveVarianceError,
 )
 
-HISTORICAL_VARIANCE_MODEL_ID = "historical_variance_252"
-HISTORICAL_SIMULATION_MODEL_ID = "historical_simulation_500"
+HISTORICAL_VARIANCE_MODEL_ID = "historical_variance"
+HISTORICAL_SIMULATION_MODEL_ID = "historical_simulation"
+
+type QuantileMethod = Literal["linear", "lower", "higher", "nearest", "midpoint"]
 
 
 @dataclass(frozen=True)
@@ -47,10 +49,16 @@ def _exact_finite_window(returns: pd.Series, expected: int) -> pd.Series:
 
 @dataclass(frozen=True)
 class HistoricalVarianceModel:
-    """Rolling sample variance using exactly 252 observations and ddof=1."""
+    """Rolling sample variance using the configured window and ``ddof=1``."""
 
     window: int = 252
     model_id: str = HISTORICAL_VARIANCE_MODEL_ID
+
+    def __post_init__(self) -> None:
+        if self.window < 2:
+            raise InputValueInvalidError(
+                "Historical variance window must be at least two."
+            )
 
     def forecast(self, returns: pd.Series) -> VarianceForecast:
         window = _exact_finite_window(returns, self.window)
@@ -87,18 +95,20 @@ class HistoricalVarianceModel:
 
 @dataclass(frozen=True)
 class HistoricalSimulationModel:
-    """Historical lower-tail quantiles using exactly 500 observations."""
+    """Historical lower-tail quantiles using the configured rolling window."""
 
     window: int = 500
-    quantile_method: Literal["linear"] = "linear"
+    quantile_method: QuantileMethod = "linear"
     model_id: str = HISTORICAL_SIMULATION_MODEL_ID
+
+    def __post_init__(self) -> None:
+        if self.window < 2:
+            raise InputValueInvalidError(
+                "Historical simulation window must be at least two."
+            )
 
     def forecast(self, returns: pd.Series) -> HistoricalSimulationForecast:
         window = _exact_finite_window(returns, self.window)
-        if self.quantile_method != "linear":
-            raise InputValueInvalidError(
-                "Historical simulation requires linear quantile interpolation."
-            )
         q_0_05 = float(window.quantile(0.05, interpolation=self.quantile_method))
         q_0_01 = float(window.quantile(0.01, interpolation=self.quantile_method))
         if not math.isfinite(q_0_05) or not math.isfinite(q_0_01):
@@ -121,8 +131,8 @@ class HistoricalSimulationModel:
             self.window,
             min_periods=self.window,
         )
-        q_0_05 = rolling.quantile(0.05, interpolation="linear")
-        q_0_01 = rolling.quantile(0.01, interpolation="linear")
+        q_0_05 = rolling.quantile(0.05, interpolation=self.quantile_method)
+        q_0_01 = rolling.quantile(0.01, interpolation=self.quantile_method)
         return pd.DataFrame(
             {
                 "return_quantile_0_05": q_0_05,
@@ -140,5 +150,6 @@ __all__ = [
     "HistoricalSimulationForecast",
     "HistoricalSimulationModel",
     "HistoricalVarianceModel",
+    "QuantileMethod",
     "VarianceForecast",
 ]

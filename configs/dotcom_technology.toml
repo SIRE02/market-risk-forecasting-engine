@@ -1,7 +1,7 @@
 [experiment]
-experiment_id = "risk-example"
-input_run_dir = "data/fixtures/upstream_run"
-output_dir = "outputs/risk-example"
+experiment_id = "risk-dotcom-technology"
+input_run_dir = "data/upstream/spy-msft-csco-aapl-1993-2026"
+output_dir = "outputs/risk-dotcom-technology"
 random_seed = 42
 
 [upstream]
@@ -10,20 +10,18 @@ package_version = "0.1.0"
 simple_returns_schema_id = "historical-asset-risk/simple-returns"
 simple_returns_schema_version = "1.experimental"
 simple_returns_units = "decimal_return_per_observation"
-instruments = ["SPY", "IEF", "GLD"]
+instruments = ["SPY", "MSFT", "CSCO", "AAPL"]
 
 [periods]
-development_start = "2007-01-01"
-development_end = "2014-12-31"
-validation_start = "2015-01-01"
-validation_end = "2019-12-31"
-test_start = "2020-01-01"
-test_end = "2025-12-31"
+development_start = "1998-01-01"
+development_end = "1998-06-30"
+validation_start = "1998-07-01"
+validation_end = "1998-12-31"
+test_start = "1999-01-01"
+test_end = "2026-07-31"
 
 [portfolio_proxy]
-enabled = true
-series_id = "FIXTURE_PROXY"
-weights = { SPY = 0.60, IEF = 0.30, GLD = 0.10 }
+enabled = false
 
 [historical]
 variance_window = 252

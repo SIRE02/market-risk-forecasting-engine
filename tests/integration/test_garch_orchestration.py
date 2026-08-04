@@ -165,9 +165,9 @@ def test_all_models_reconcile_with_garch_diagnostics(
     assert len(artifacts.realizations) == 4_252
     assert len(artifacts.fit_diagnostics) == 36
     assert set(artifacts.forecasts["model_id"]) == {
-        "historical_variance_252",
-        "historical_simulation_500",
-        "ewma_lambda_0_94",
+        "historical_variance",
+        "historical_simulation",
+        "ewma",
         GAUSSIAN_GARCH_MODEL_ID,
         STUDENT_T_GARCH_MODEL_ID,
     }
