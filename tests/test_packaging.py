@@ -10,7 +10,7 @@ from market_risk_forecasting.cli import main
 
 
 def test_version_is_available() -> None:
-    assert __version__ == "0.2.0"
+    assert __version__ == "0.1.0"
 
 
 def test_cli_help_works() -> None:

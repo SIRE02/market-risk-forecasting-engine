@@ -1,4 +1,4 @@
-# Market-risk-forecasting-engine v0.2.0 Python 3.12 resolution (2026-07-31).
+# Market-risk-forecasting-engine v0.1.0 Python 3.12 resolution (2026-08-04).
 # Every empirical run records the installed resolution in run_manifest.json.
 arch==7.2.0
 beautifulsoup4==4.15.0

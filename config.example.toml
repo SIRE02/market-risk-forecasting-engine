@@ -1,7 +1,8 @@
 [experiment]
-experiment_id = "risk-v01-example"
+experiment_id = "risk-v02-example"
+protocol_version = "2.0"
 input_run_dir = "data/fixtures/upstream_run"
-output_dir = "outputs/risk-v01-example"
+output_dir = "outputs/risk-v02-example"
 random_seed = 42
 
 [upstream]
@@ -21,10 +22,9 @@ test_start = "2020-01-01"
 test_end = "2025-12-31"
 
 [portfolio_proxy]
-series_id = "MIX_60_30_10"
-SPY = 0.60
-IEF = 0.30
-GLD = 0.10
+enabled = true
+series_id = "FIXTURE_PROXY"
+weights = { SPY = 0.60, IEF = 0.30, GLD = 0.10 }
 
 [historical]
 variance_window = 252
@@ -48,4 +48,3 @@ primary_var_confidence = 0.95
 bootstrap_block_length = 20
 bootstrap_resamples = 2000
 bootstrap_confidence = 0.95
-

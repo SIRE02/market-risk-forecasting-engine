@@ -20,7 +20,7 @@ from market_risk_forecasting.orchestration import (
     run_benchmarks_and_ewma,
     run_ewma_candidate,
 )
-from market_risk_forecasting.upstream import load_upstream_run
+from market_risk_forecasting.upstream import coverage_requirements, load_upstream_run
 
 
 def _fixture_inputs(
@@ -30,6 +30,7 @@ def _fixture_inputs(
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
     dataset = build_research_dataset(upstream, config.portfolio_proxy)
     return config, dataset, upstream.checksums["simple_returns.csv"]

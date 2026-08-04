@@ -1,57 +1,60 @@
 # Market Risk Forecasting Engine
 
-A reproducible Python research package for one-session-ahead variance and
-Value at Risk (VaR) forecasts. The frozen v0.1 study compares rolling
-historical benchmarks with EWMA, Gaussian GARCH(1,1), and Student-t GARCH(1,1)
-on SPY, IEF, GLD, and a 60/30/10 constant-weight return proxy.
+A reproducible Python research tool for one-session-ahead variance and Value
+at Risk (VaR) forecasting. It compares transparent historical benchmarks with
+EWMA, Gaussian GARCH(1,1), and Student-t GARCH(1,1), evaluates the forecasts,
+and produces a traceable research report.
 
-In the frozen historical final test, all three candidate models had lower
-aggregate variance QLIKE and 95% VaR pinball loss than their corresponding
-historical benchmarks on their pairwise common panels. The 95% moving-block
-bootstrap intervals for those mean differences were below zero. This is
-historical pseudo-out-of-sample evidence, not a live forecast, a trading
-strategy, a regulatory model, or a guarantee of future performance.
+This is historical research software. It is not a live trading system,
+investment advice, a regulatory model, or a guarantee of future performance.
 
-Student-t GARCH deserves an explicit caveat: its final-test availability was
-88.40%, versus 100% for EWMA and Gaussian GARCH. Thirty-five scheduled
-Student-t refits violated the frozen stationarity rule, producing 700 failed
-forecasts that remain visible in the artifacts and report.
+## Why are there two projects?
 
-The complete empirical results are in
-[`reports/research_report.md`](reports/research_report.md).
+Reliable forecasting starts with reliable data, but downloading and cleaning
+market data is a different responsibility from fitting and evaluating risk
+models. The workflow deliberately separates them:
 
-## Five-minute technical overview
+| Project | Responsibility | Network access |
+| --- | --- | --- |
+| `historical-asset-risk-engine` | Download adjusted prices, clean and align observations, calculate returns, and record data-quality evidence | Yes, when Yahoo is selected |
+| `market-risk-forecasting-engine` | Validate the saved return artifacts, run forecasts, evaluate models, and generate the research report | No |
 
-The engine consumes the immutable output of
-`historical-asset-risk-engine` v0.1.0, validates its schema, manifest, quality
-status, hashes, dates, and installed package identity, then builds an
-experiment-specific dataset manifest. It never downloads market data.
+The separation provides a stable boundary:
 
-For each observed forecast origin, it creates the next-session target and:
+```text
+Yahoo Finance
+    -> historical-asset-risk-engine
+    -> simple_returns.csv + quality report + run manifest
+    -> market-risk-forecasting-engine
+    -> forecasts + evaluation tables + research report
+```
 
-- computes 252-return historical variance and 500-return historical-simulation
-  VaR benchmarks;
-- updates an EWMA variance process with fixed lambda 0.94;
-- fits zero-mean Gaussian and Student-t GARCH(1,1) models to rolling
-  1,250-return windows every 20 origins;
-- carries fixed GARCH parameters forward between scheduled refits while
-  updating state with newly observed returns;
-- records forecasts, failures, fit diagnostics, realizations, and exact
-  validation/final-test membership;
-- evaluates variance with QLIKE and VaR with lower-tail pinball loss;
-- reports strict VaR exceptions, Kupiec coverage, Christoffersen independence,
-  and deterministic moving-block bootstrap comparisons.
+You do not need to clone both repositories. Installing this repository also
+installs the pinned historical package and its `historical-asset-risk` command.
+The historical repository must remain publicly accessible because it is a Git
+dependency.
 
-`run` writes numerical artifacts transactionally. An existing experiment
-directory is reused only when its experiment manifest matches exactly and all
-declared checksums verify; materially different inputs are never overwritten.
-`report` reads saved artifacts without refitting or changing numerical files.
-`reproduce` performs validation, numerical execution, report generation, and a
-final checksum verification in one command.
+## Quickstart from a clean computer
 
-## Installation
+Run every command in this section from the root of this repository.
 
-Python 3.12 is required.
+### 1. Install prerequisites
+
+You need:
+
+- Git;
+- Miniconda or Anaconda;
+- internet access for installation and the Yahoo download;
+- a platform supported by Python 3.12 and the declared dependencies.
+
+Clone the repository:
+
+```powershell
+git clone https://github.com/SIRE02/market-risk-forecasting-engine.git
+Set-Location market-risk-forecasting-engine
+```
+
+Create and activate the environment:
 
 ```powershell
 conda env create -f environment.yml
@@ -59,83 +62,233 @@ conda activate market-risk-forecasting-engine
 python -m pip install -e .
 ```
 
-To update an existing environment:
+Confirm that installation provided both commands:
 
 ```powershell
-conda env update -n market-risk-forecasting-engine -f environment.yml --prune
+historical-asset-risk --help
+market-risk-forecast --help
+```
+
+### 2. Download and prepare the example data
+
+The checked-in historical configuration requests AAPL, MSFT, GLD, and TLT
+from 2010 through 2025:
+
+```powershell
+historical-asset-risk --config configs/upstream/four_assets.toml
+```
+
+The command creates:
+
+```text
+data/upstream/aapl-msft-gld-tlt-2010-2025/
+```
+
+The three files required by forecasting are:
+
+```text
+simple_returns.csv
+data_quality_report.json
+run_manifest.json
+```
+
+The historical run also writes adjusted prices, descriptive statistics, and
+charts. Its configured `end_date` is `2026-01-01` because provider end dates
+are exclusive; the requested data therefore ends in 2025.
+
+Downloaded provider data is intentionally ignored by Git. Every user acquires
+their own copy and is responsible for complying with provider terms.
+
+### 3. Validate the handoff
+
+The matching forecasting configuration is
+[`configs/four_assets.toml`](configs/four_assets.toml):
+
+```powershell
+market-risk-forecast validate-input --config configs/four_assets.toml
+```
+
+A successful validation reports:
+
+```text
+Input validation: ok
+Series: AAPL, MSFT, GLD, TLT
+```
+
+Validation checks the historical package version, project identity, schema,
+instrument identities and ordering, date coverage, data-quality evidence,
+finite return values, observation counts, and SHA-256 checksums.
+
+### 4. Run forecasting, evaluation, and reporting
+
+Use `reproduce` for the complete workflow:
+
+```powershell
+market-risk-forecast reproduce --config configs/four_assets.toml
+```
+
+GARCH estimation is computationally heavier than input validation, so this
+step can take several minutes. The completed experiment is written to:
+
+```text
+outputs/risk-v02-aapl-msft-gld-tlt/
+```
+
+Start with the generated report:
+
+```text
+outputs/risk-v02-aapl-msft-gld-tlt/research_report.md
+```
+
+The output directory also contains forecasts, realizations, fit diagnostics,
+evaluation tables, figures, manifests, and checksums.
+
+## How the paired configurations work
+
+Each real-data example has two matching files:
+
+| Data acquisition | Forecasting |
+| --- | --- |
+| [`configs/upstream/four_assets.toml`](configs/upstream/four_assets.toml) | [`configs/four_assets.toml`](configs/four_assets.toml) |
+
+The acquisition configuration's `output_dir` must equal the forecasting
+configuration's `input_run_dir`. Tickers must also match exactly, including
+their ordering. Forecasting rejects accidental mismatches instead of silently
+relabeling columns.
+
+## Use your own assets
+
+Copy one pair of example configurations and change both files together.
+
+In the historical configuration, select the provider, tickers, requested
+dates, and output directory:
+
+```toml
+[analysis]
+provider = "yahoo"
+tickers = ["NVDA", "AMZN", "GLD", "TLT"]
+start_date = "2010-01-01"
+end_date = "2026-01-01"
+output_dir = "data/upstream/nvda-amzn-gld-tlt-2010-2025"
+```
+
+In the forecasting configuration, use the same ordered tickers and directory:
+
+```toml
+[experiment]
+experiment_id = "risk-v02-nvda-amzn-gld-tlt"
+protocol_version = "2.0"
+input_run_dir = "data/upstream/nvda-amzn-gld-tlt-2010-2025"
+output_dir = "outputs/risk-v02-nvda-amzn-gld-tlt"
+
+[upstream]
+instruments = ["NVDA", "AMZN", "GLD", "TLT"]
+```
+
+Keep the remaining schema identity and model sections from the example file.
+Important rules:
+
+- every asset needs sufficient shared history;
+- the current GARCH model requires 1,250 prior returns;
+- development, validation, and test periods must each contain eligible target
+  observations;
+- choose experiment periods before inspecting comparative results;
+- use a new experiment ID and output directory for a materially different run.
+
+The example keeps only individual assets by setting
+`portfolio_proxy.enabled = false`. Protocol 2.0 can also add a dynamic
+constant-weight proxy. See
+[`docs/CUSTOM_PROTOCOL.md`](docs/CUSTOM_PROTOCOL.md).
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `historical-asset-risk --config FILE` | Acquire and prepare upstream returns |
+| `market-risk-forecast validate-input --config FILE` | Validate without writing an experiment |
+| `market-risk-forecast run --config FILE` | Run numerical forecasting and evaluation |
+| `market-risk-forecast report --experiment-dir DIR` | Generate a report from saved numerical artifacts |
+| `market-risk-forecast reproduce --config FILE` | Validate, run, report, and verify in one command |
+
+`run` and `reproduce` never overwrite a materially different existing
+experiment. If you change data or configuration, choose a new experiment ID
+and output directory.
+
+## What the forecasting engine does
+
+For every configured series, the engine:
+
+- computes 252-return historical variance and 500-return
+  historical-simulation VaR benchmarks;
+- updates an EWMA variance process with lambda 0.94;
+- fits zero-mean Gaussian and Student-t GARCH(1,1) models using rolling
+  1,250-return windows and scheduled refits;
+- creates strictly next-observation targets without future-data leakage;
+- evaluates variance with QLIKE and VaR with lower-tail pinball loss;
+- reports VaR exceptions, Kupiec coverage, Christoffersen independence, and
+  deterministic moving-block bootstrap comparisons;
+- retains failed fits and diagnostics instead of silently substituting another
+  model.
+
+Protocol 2.0 currently generalizes instruments, periods, and the optional
+portfolio proxy. The vetted numerical model and evaluation settings remain
+fixed.
+
+## Reproducibility and artifacts
+
+The forecasting engine consumes the public
+`historical-asset-risk/simple-returns` artifact contract. It records:
+
+- the effective experiment configuration;
+- the installed package and source identities;
+- upstream and generated-file checksums;
+- dataset lineage and quality adjustments;
+- exact training windows, forecast origins, and target dates;
+- optimizer outcomes, retries, failures, and availability;
+- separate validation and final-test results.
+
+Downloaded data belongs under `data/upstream/`, and experiment results belong
+under `outputs/`. Both directories are ignored by Git.
+
+## Troubleshooting
+
+### A command is not recognized
+
+Activate the environment and reinstall the editable package:
+
+```powershell
 conda activate market-risk-forecasting-engine
 python -m pip install -e .
 ```
 
-The upstream dependency is pinned immutably to tag `v0.1.0` and full commit
-`f8a1b91b3f3e1e74040c232d8841397d0f032508`.
+### Installation cannot fetch the historical package
 
-## Commands
+Confirm Git and internet access are available and that the pinned
+`historical-asset-risk-engine` commit is public.
 
-Validate the committed offline fixture without writing an experiment:
+### Forecasting says required upstream files are missing
 
-```powershell
-market-risk-forecast validate-input --config config.example.toml
-```
+Run the matching `historical-asset-risk --config ...` command first and verify
+that the acquisition `output_dir` matches the forecasting `input_run_dir`.
 
-Run numerical forecasting and evaluation:
+### Instruments or ordering do not match
 
-```powershell
-market-risk-forecast run --config config.example.toml
-```
+Make the historical `tickers` list and forecasting `instruments` list
+identical. Ordering is part of the artifact contract.
 
-The destination is the `[experiment].output_dir` value in the configuration.
+### History is insufficient
 
-Generate a report strictly from that run's saved artifacts:
+Choose assets with longer shared histories or request an earlier start date.
+Newly listed assets can shorten the common aligned dataset for every series.
 
-```powershell
-market-risk-forecast report --experiment-dir outputs/risk-v01-example
-```
+### An output directory already exists
 
-Execute and verify the complete offline workflow:
+Completed runs are treated as immutable evidence. Use a new experiment ID and
+output directory rather than overwriting the old run.
 
-```powershell
-market-risk-forecast reproduce --config config.example.toml
-```
+## Development
 
-Run `market-risk-forecast <command> --help` for command options.
-
-### Custom instrument protocol
-
-The frozen v0.1 configuration remains restricted to SPY, IEF, GLD, and its
-60/30/10 proxy. New universes must opt into `experiment.protocol_version =
-"2.0"`. Protocol v2 accepts any ordered upstream instrument universe and
-supports either a dynamic constant-weight proxy or no proxy.
-
-The included [`configs/aapl_msft_gld.toml`](configs/aapl_msft_gld.toml) profile
-consumes the historical-engine output in
-`../historical-asset-risk-engine/outputs/aapl-msft-gld` without constructing an
-arbitrary combined portfolio:
-
-```powershell
-market-risk-forecast validate-input --config configs/aapl_msft_gld.toml
-```
-
-Protocol v2 derives minimum data coverage from the largest configured model
-window and requires at least one eligible forecast target in each declared
-development, validation, and test period. The current v2 milestone changes the
-instrument and portfolio contract only; the vetted v0.1 model and evaluation
-parameters remain fixed.
-
-## Experiment artifacts
-
-A complete experiment contains copies of the validated upstream manifest and
-quality report, dataset and experiment manifests, forecast windows,
-realizations, forecasts, fit diagnostics, six evaluation tables, three
-figures, the Markdown research report, and `run_manifest.json`.
-
-The run manifest records package and source identity, dependency versions,
-configuration, upstream hashes, schema inventory, model settings, seed,
-execution state, and the SHA-256 digest of every declared artifact. Failed
-forecasts and retry diagnostics are retained rather than clipped, substituted,
-or silently discarded.
-
-## Development and release checks
+Run the release checks from the repository root:
 
 ```powershell
 python -m ruff format --check .
@@ -145,8 +298,4 @@ python -m pytest -q
 python -m build
 ```
 
-The frozen protocol and acceptance criteria are defined in the local
-`docs/market-risk-forecasting-engine-implementation-spec.md`. That
-implementation-planning file is intentionally excluded from Git; this README,
-the empirical report, source, tests, configuration, and release metadata are
-tracked.
+Release history is recorded in [`CHANGELOG.md`](CHANGELOG.md).

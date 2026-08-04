@@ -22,7 +22,7 @@ def test_validate_input_cli_constructs_series_and_writes_nothing(
             'input_run_dir = "data/fixtures/upstream_run"',
             f'input_run_dir = "{fixture.as_posix()}"',
         ).replace(
-            'output_dir = "outputs/risk-v01-example"',
+            'output_dir = "outputs/risk-v02-example"',
             f'output_dir = "{output_dir.as_posix()}"',
         ),
         encoding="utf-8",
@@ -39,7 +39,7 @@ def test_validate_input_cli_constructs_series_and_writes_nothing(
     }
     assert exit_code == 0
     assert "Input validation: ok" in captured.out
-    assert "SPY, IEF, GLD, MIX_60_30_10" in captured.out
+    assert "SPY, IEF, GLD, FIXTURE_PROXY" in captured.out
     assert "Return observations: 4957" in captured.out
     assert captured.err == ""
     assert before == after

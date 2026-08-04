@@ -32,9 +32,6 @@ _REQUIRED_FILES = (
     "data_quality_report.json",
     "run_manifest.json",
 )
-_EARLIEST_ACCEPTABLE_FIRST_DATE = date(2007, 12, 31)
-_LATEST_ACCEPTABLE_LAST_DATE = date(2025, 12, 30)
-_MINIMUM_COMMON_DATE_COUNT = 4000
 
 
 @dataclass(frozen=True)
@@ -46,13 +43,6 @@ class UpstreamCoverageRequirements:
     last_date_not_before: date
     forecast_window: int | None = None
     periods: tuple[tuple[str, date, date], ...] = ()
-
-
-_FROZEN_V01_COVERAGE = UpstreamCoverageRequirements(
-    minimum_common_date_count=_MINIMUM_COMMON_DATE_COUNT,
-    first_date_not_after=_EARLIEST_ACCEPTABLE_FIRST_DATE,
-    last_date_not_before=_LATEST_ACCEPTABLE_LAST_DATE,
-)
 
 
 @dataclass(frozen=True)
@@ -189,7 +179,7 @@ def _validate_manifest(
     if instruments != expected.instruments:
         raise UpstreamManifestInvalidError(
             "Manifest instrument identities or ordering do not match the "
-            "configured v0.1 universe."
+            "configured instrument universe."
         )
 
     schemas = _mapping(
@@ -242,7 +232,7 @@ def _validate_quality(
     )
     if requested != expected_instruments:
         raise UpstreamQualityGateFailedError(
-            "Quality-report requested instruments differ from the v0.1 universe."
+            "Quality-report requested instruments differ from the configured universe."
         )
     returned = _ordered_strings(
         quality.get("returned_instruments"),
@@ -374,9 +364,7 @@ def _validate_frame(
 
 
 def coverage_requirements(config: ForecastConfig) -> UpstreamCoverageRequirements:
-    """Derive input gates without changing the immutable frozen-v0.1 contract."""
-    if config.is_frozen_v01:
-        return _FROZEN_V01_COVERAGE
+    """Derive input gates from the configured periods and largest model window."""
     maximum_window = max(
         config.historical.variance_window,
         config.historical.var_window,
@@ -400,11 +388,10 @@ def coverage_requirements(config: ForecastConfig) -> UpstreamCoverageRequirement
 def load_upstream_run(
     input_run_dir: Path,
     expected: UpstreamConfig,
-    coverage: UpstreamCoverageRequirements | None = None,
+    coverage: UpstreamCoverageRequirements,
 ) -> UpstreamRun:
     """Validate and load one complete upstream v0.1.0 run without network access."""
     run_dir = Path(input_run_dir)
-    required_coverage = coverage or _FROZEN_V01_COVERAGE
     missing = [name for name in _REQUIRED_FILES if not (run_dir / name).is_file()]
     if missing:
         raise UpstreamManifestInvalidError(
@@ -415,12 +402,12 @@ def load_upstream_run(
     manifest = _load_json(run_dir / "run_manifest.json", label="run manifest")
     quality = _load_json(run_dir / "data_quality_report.json", label="quality report")
     manifest_instruments = _validate_manifest(manifest, expected)
-    _validate_quality(quality, expected.instruments, required_coverage)
+    _validate_quality(quality, expected.instruments, coverage)
     frame = _validate_frame(
         _load_public_artifact(run_dir),
         manifest_instruments=manifest_instruments,
         quality=quality,
-        coverage=required_coverage,
+        coverage=coverage,
     )
     checksums = {name: sha256_file(run_dir / name) for name in sorted(_REQUIRED_FILES)}
     if any(

@@ -51,7 +51,7 @@ class ForecastResult:
 
 
 class VarianceForecaster(Protocol):
-    """Public interface shared by all v0.1 variance forecasters."""
+    """Public interface shared by all variance forecasters."""
 
     model_id: str
 

@@ -715,7 +715,7 @@ def run_historical_benchmarks(
     config: ForecastConfig,
     upstream_simple_return_checksum: str,
 ) -> BenchmarkArtifacts:
-    """Generate all Phase 2 windows, realizations, and permanent benchmarks."""
+    """Generate all windows, realizations, and historical benchmarks."""
     windows = _all_benchmark_windows(dataset, config)
     artifacts = BenchmarkArtifacts(
         experiment_windows=pd.DataFrame(
@@ -768,7 +768,7 @@ def run_benchmarks_and_ewma(
     config: ForecastConfig,
     upstream_simple_return_checksum: str,
 ) -> BenchmarkArtifacts:
-    """Run the permanent benchmarks and continuous EWMA candidate."""
+    """Run the historical benchmarks and continuous EWMA candidate."""
     benchmarks = run_historical_benchmarks(
         dataset=dataset,
         config=config,
@@ -886,7 +886,7 @@ def run_available_models_with_evaluation(
     config: ForecastConfig,
     upstream_simple_return_checksum: str,
 ) -> EvaluatedModelArtifacts:
-    """Run every available model and build the frozen evaluation tables."""
+    """Run every available model and build the evaluation tables."""
     models = run_available_models(
         dataset=dataset,
         config=config,

@@ -153,7 +153,7 @@ def main() -> None:
         "w", encoding="utf-8", newline=""
     ) as stream:
         writer = csv.writer(stream, lineterminator="\n")
-        writer.writerow(("date", *INSTRUMENTS, "MIX_60_30_10"))
+        writer.writerow(("date", *INSTRUMENTS, "FIXTURE_PROXY"))
         for position, observation_date in enumerate(dates[:10]):
             spy, ief, gld = _returns(position)
             proxy = 0.60 * spy + 0.30 * ief + 0.10 * gld

@@ -46,10 +46,10 @@ class EwmaModel:
 
     def __post_init__(self) -> None:
         if self.lambda_ != 0.94:
-            raise InputValueInvalidError("v0.1 EWMA requires lambda=0.94.")
+            raise InputValueInvalidError("Protocol 2.0 EWMA requires lambda=0.94.")
         if self.initialization_window != 252:
             raise InputValueInvalidError(
-                "v0.1 EWMA requires a 252-observation initialization."
+                "Protocol 2.0 EWMA requires a 252-observation initialization."
             )
 
     def initialize(self, returns: pd.Series) -> EwmaState:

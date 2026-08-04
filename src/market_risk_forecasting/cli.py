@@ -1,4 +1,4 @@
-"""Command-line surface for the phased v0.1 implementation."""
+"""Command-line surface for market-risk forecasting experiments."""
 
 from __future__ import annotations
 

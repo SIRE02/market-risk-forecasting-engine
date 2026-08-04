@@ -25,9 +25,9 @@ def test_synthetic_fixture_satisfies_public_upstream_loader(
     assert manifest["project_version"] == "0.1.0"
     assert manifest["data_source"]["instruments"] == ["SPY", "IEF", "GLD"]
     assert list(frame.columns) == ["SPY", "IEF", "GLD"]
-    assert quality["common_date_count_after_alignment"] >= 4000
-    assert quality["first_common_date"] <= "2007-12-31"
-    assert quality["last_common_date"] >= "2025-12-30"
+    assert quality["common_date_count_after_alignment"] == 4958
+    assert quality["first_common_date"] == "2007-01-01"
+    assert quality["last_common_date"] == "2025-12-31"
     assert not frame.isna().any(axis=None)
     assert frame.index.is_monotonic_increasing
     assert frame.index.is_unique

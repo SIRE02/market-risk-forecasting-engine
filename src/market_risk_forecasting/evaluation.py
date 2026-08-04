@@ -91,7 +91,6 @@ _TAIL_SPECS = (
     (0.95, 0.05, "return_quantile_0_05", "var_0_95", "pinball_loss_0_05"),
     (0.99, 0.01, "return_quantile_0_01", "var_0_99", "pinball_loss_0_01"),
 )
-_TEST_YEARS = tuple(range(2020, 2026))
 
 
 @dataclass(frozen=True)
@@ -356,11 +355,15 @@ def evaluate_forecasts(
         experiment_id=experiment_id,
         config=config,
     )
+    test_years = tuple(
+        range(config.periods.test_start.year, config.periods.test_end.year + 1)
+    )
     period_breakdowns = _period_breakdown_table(
         joined=joined,
         variance_observations=variance_observations,
         quantile_observations=quantile_observations,
         experiment_id=experiment_id,
+        test_years=test_years,
     )
     artifacts = EvaluationArtifacts(
         forecast_availability=availability,
@@ -370,7 +373,7 @@ def evaluate_forecasts(
         bootstrap_comparisons=bootstrap_comparisons,
         period_breakdowns=period_breakdowns,
     )
-    _validate_evaluation_artifacts(artifacts)
+    _validate_evaluation_artifacts(artifacts, test_years=test_years)
     return artifacts
 
 
@@ -832,9 +835,10 @@ def _period_breakdown_table(
     variance_observations: pd.DataFrame,
     quantile_observations: pd.DataFrame,
     experiment_id: str,
+    test_years: tuple[int, ...],
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    for year in _TEST_YEARS:
+    for year in test_years:
         period_name = f"test_{year}"
         period_start = f"{year}-01-01"
         period_end = f"{year}-12-31"
@@ -1057,7 +1061,11 @@ def _bernoulli_log_likelihood(
     return success_term + failure_term
 
 
-def _validate_evaluation_artifacts(artifacts: EvaluationArtifacts) -> None:
+def _validate_evaluation_artifacts(
+    artifacts: EvaluationArtifacts,
+    *,
+    test_years: tuple[int, ...],
+) -> None:
     expected = (
         (artifacts.forecast_availability, FORECAST_AVAILABILITY_COLUMNS),
         (artifacts.variance_scores, VARIANCE_SCORE_COLUMNS),
@@ -1075,7 +1083,7 @@ def _validate_evaluation_artifacts(artifacts: EvaluationArtifacts) -> None:
                 "Validation and final-test evaluation outputs are not separated."
             )
     if not set(artifacts.period_breakdowns["period"]).issubset(
-        {f"test_{year}" for year in _TEST_YEARS}
+        {f"test_{year}" for year in test_years}
     ):
         raise WindowAlignmentError("A period breakdown was not predeclared.")
     availability = artifacts.forecast_availability

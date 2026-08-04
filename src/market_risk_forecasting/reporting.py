@@ -200,19 +200,14 @@ def _load_effective_configuration(directory: Path) -> dict[str, Any]:
     return effective
 
 
-def _report_identity(effective: dict[str, Any]) -> tuple[str, str, bool]:
+def _report_identity(effective: dict[str, Any]) -> tuple[str, str]:
     experiment = effective.get("experiment", {})
     protocol_version = (
-        str(experiment.get("protocol_version", "1.0"))
+        str(experiment.get("protocol_version", "unknown"))
         if isinstance(experiment, dict)
-        else "1.0"
+        else "unknown"
     )
-    frozen = protocol_version == "1.0"
-    title = (
-        "# Market Risk Forecasting Engine - Frozen v0.1 Research Report"
-        if frozen
-        else f"# Market Risk Forecasting Engine - Protocol v{protocol_version} Report"
-    )
+    title = f"# Market Risk Forecasting Engine - Protocol v{protocol_version} Report"
 
     upstream = effective.get("upstream", {})
     instruments = upstream.get("instruments", []) if isinstance(upstream, dict) else []
@@ -222,7 +217,7 @@ def _report_identity(effective: dict[str, Any]) -> tuple[str, str, bool]:
         proxy_id = proxy.get("series_id")
         if isinstance(proxy_id, str) and proxy_id:
             series.append(proxy_id)
-    return title, ", ".join(series), frozen
+    return title, ", ".join(series)
 
 
 def _render_report(
@@ -250,7 +245,7 @@ def _render_report(
     availability_table = _availability_rows(availability)
     coverage_table = _coverage_rows(coverage)
     diagnostic_table = _diagnostic_rows(diagnostics, forecasts)
-    title, series_text, _ = _report_identity(effective_configuration)
+    title, series_text = _report_identity(effective_configuration)
     portfolio_limitation = (
         "The portfolio series is a constant-weight return projection rather than a "
         "holdings ledger. "
@@ -266,7 +261,7 @@ def _render_report(
         "",
         direct_answer,
         "",
-        "This is frozen historical pseudo-out-of-sample evidence, not live or "
+        "This is historical pseudo-out-of-sample evidence, not live or "
         "prospective forecasting. Lower QLIKE and pinball loss are better.",
         "",
         "## Final-test variance comparison",
@@ -343,7 +338,7 @@ def _render_report(
             diagnostic_table,
         ),
         "",
-        "A converged optimizer result can still fail the frozen parameter rules. "
+        "A converged optimizer result can still fail the parameter rules. "
         "In particular, nonstationary fits are retained as failed forecasts and "
         "stale parameters are not reused.",
         "",

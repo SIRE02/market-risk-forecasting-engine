@@ -13,7 +13,7 @@ from market_risk_forecasting.datasets import (
     persist_dataset_manifest,
 )
 from market_risk_forecasting.errors import InputValueInvalidError
-from market_risk_forecasting.upstream import load_upstream_run
+from market_risk_forecasting.upstream import coverage_requirements, load_upstream_run
 
 
 def test_portfolio_proxy_matches_hand_calculated_values(
@@ -23,6 +23,7 @@ def test_portfolio_proxy_matches_hand_calculated_values(
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
     expected = pd.read_csv(
         project_root / "data" / "fixtures" / "expected" / "research_series_head.csv",
@@ -46,6 +47,7 @@ def test_individual_series_are_not_transformed(project_root: Path) -> None:
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
 
     dataset = build_research_dataset(upstream, config.portfolio_proxy)
@@ -54,7 +56,7 @@ def test_individual_series_are_not_transformed(project_root: Path) -> None:
         dataset.returns.loc[:, ["SPY", "IEF", "GLD"]],
         upstream.returns,
     )
-    assert dataset.series_order == ("SPY", "IEF", "GLD", "MIX_60_30_10")
+    assert dataset.series_order == ("SPY", "IEF", "GLD", "FIXTURE_PROXY")
 
 
 def test_custom_universe_can_disable_portfolio_proxy() -> None:
@@ -96,6 +98,7 @@ def test_dataset_manifest_preserves_lineage(project_root: Path) -> None:
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
 
     dataset = build_research_dataset(upstream, config.portfolio_proxy)
@@ -132,6 +135,7 @@ def test_dataset_manifest_serialization_is_deterministic(
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
     dataset = build_research_dataset(upstream, config.portfolio_proxy)
     first = tmp_path / "first.json"

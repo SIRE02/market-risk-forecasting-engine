@@ -10,22 +10,20 @@ def test_custom_report_identity_uses_configured_series() -> None:
         "portfolio_proxy": {"enabled": False},
     }
 
-    title, series, frozen = _report_identity(effective)
+    title, series = _report_identity(effective)
 
     assert title == "# Market Risk Forecasting Engine - Protocol v2.0 Report"
     assert series == "AAPL, MSFT, GLD"
-    assert frozen is False
 
 
-def test_legacy_report_identity_preserves_frozen_title_and_proxy() -> None:
+def test_report_identity_includes_configured_proxy() -> None:
     effective = {
-        "experiment": {"experiment_id": "risk-v01-frozen"},
+        "experiment": {"protocol_version": "2.0"},
         "upstream": {"instruments": ["SPY", "IEF", "GLD"]},
-        "portfolio_proxy": {"series_id": "MIX_60_30_10"},
+        "portfolio_proxy": {"enabled": True, "series_id": "FIXTURE_PROXY"},
     }
 
-    title, series, frozen = _report_identity(effective)
+    title, series = _report_identity(effective)
 
-    assert title == "# Market Risk Forecasting Engine - Frozen v0.1 Research Report"
-    assert series == "SPY, IEF, GLD, MIX_60_30_10"
-    assert frozen is True
+    assert title == "# Market Risk Forecasting Engine - Protocol v2.0 Report"
+    assert series == "SPY, IEF, GLD, FIXTURE_PROXY"

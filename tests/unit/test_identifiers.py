@@ -36,7 +36,7 @@ def test_identifier_rejects_nonfinite_material() -> None:
 
 def test_fit_identifier_ignores_undeclared_runtime_data() -> None:
     arguments = {
-        "experiment_id": "risk-v01-frozen",
+        "experiment_id": "risk-v02-test",
         "series_id": "SPY",
         "model_id": "garch_1_1_gaussian",
         "fit_origin": pd.Timestamp("2020-01-02"),
@@ -51,7 +51,7 @@ def test_fit_identifier_ignores_undeclared_runtime_data() -> None:
 
 def test_forecast_identifier_changes_with_target() -> None:
     common = {
-        "experiment_id": "risk-v01-frozen",
+        "experiment_id": "risk-v02-test",
         "fit_id": "fit_" + "a" * 24,
         "series_id": "SPY",
         "model_id": "ewma_lambda_0_94",

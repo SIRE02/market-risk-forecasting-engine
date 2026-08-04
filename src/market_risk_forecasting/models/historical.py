@@ -1,4 +1,4 @@
-"""Transparent permanent historical benchmark models."""
+"""Transparent historical benchmark models."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Strict TOML configuration contracts for frozen v0.1 and custom v0.2 studies."""
+"""Strict TOML configuration contracts for forecasting experiments."""
 
 from __future__ import annotations
 
@@ -22,7 +22,6 @@ _TOP_LEVEL_KEYS = {
     "garch",
     "evaluation",
 }
-_REQUIRED_INSTRUMENTS = ("SPY", "IEF", "GLD")
 
 
 @dataclass(frozen=True)
@@ -31,7 +30,7 @@ class ExperimentConfig:
     input_run_dir: Path
     output_dir: Path
     random_seed: int
-    protocol_version: str = "1.0"
+    protocol_version: str
 
 
 @dataclass(frozen=True)
@@ -107,10 +106,6 @@ class ForecastConfig:
     garch: GarchConfig
     evaluation: EvaluationConfig
 
-    @property
-    def is_frozen_v01(self) -> bool:
-        return self.experiment.protocol_version == "1.0"
-
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-compatible effective configuration."""
         raw = asdict(self)
@@ -121,21 +116,14 @@ class ForecastConfig:
         }
         raw["ewma"]["lambda"] = raw["ewma"].pop("lambda_")
         raw["upstream"]["instruments"] = list(self.upstream.instruments)
-        if self.is_frozen_v01:
-            raw["experiment"].pop("protocol_version")
-            raw["portfolio_proxy"] = {
-                "series_id": self.portfolio_proxy.series_id,
-                **dict(self.portfolio_proxy.weights),
-            }
-        else:
-            raw["portfolio_proxy"] = {"enabled": self.portfolio_proxy.enabled}
-            if self.portfolio_proxy.enabled:
-                raw["portfolio_proxy"].update(
-                    {
-                        "series_id": self.portfolio_proxy.series_id,
-                        "weights": dict(self.portfolio_proxy.weights),
-                    }
-                )
+        raw["portfolio_proxy"] = {"enabled": self.portfolio_proxy.enabled}
+        if self.portfolio_proxy.enabled:
+            raw["portfolio_proxy"].update(
+                {
+                    "series_id": self.portfolio_proxy.series_id,
+                    "weights": dict(self.portfolio_proxy.weights),
+                }
+            )
         raw["evaluation"]["var_confidence_levels"] = list(
             self.evaluation.var_confidence_levels
         )
@@ -252,70 +240,53 @@ def _boolean(raw: Mapping[str, Any], key: str, context: str) -> bool:
 def _portfolio_proxy(
     raw: Mapping[str, Any],
     *,
-    protocol_version: str,
     instruments: tuple[str, ...],
 ) -> PortfolioProxyConfig:
-    if protocol_version == "1.0":
-        _validate_keys(
-            raw,
-            context="[portfolio_proxy]",
-            expected={"series_id", "SPY", "IEF", "GLD"},
+    allowed = {"enabled", "series_id", "weights"}
+    unknown = sorted(set(raw) - allowed)
+    if unknown:
+        raise _fail(
+            "[portfolio_proxy] contains unknown key(s): " + ", ".join(unknown) + "."
         )
-        series_id = _string(raw, "series_id", "portfolio_proxy")
-        weights = {
-            ticker: _number(raw, ticker, "portfolio_proxy", minimum=0.0)
-            for ticker in _REQUIRED_INSTRUMENTS
-        }
-        if series_id != "MIX_60_30_10":
-            raise _fail("portfolio_proxy.series_id must be MIX_60_30_10.")
-    else:
-        allowed = {"enabled", "series_id", "weights"}
-        unknown = sorted(set(raw) - allowed)
-        if unknown:
+    if "enabled" not in raw:
+        raise _fail("[portfolio_proxy] is missing required key(s): enabled.")
+    enabled = _boolean(raw, "enabled", "portfolio_proxy")
+    if not enabled:
+        unexpected = sorted(set(raw) - {"enabled"})
+        if unexpected:
             raise _fail(
-                "[portfolio_proxy] contains unknown key(s): " + ", ".join(unknown) + "."
-            )
-        if "enabled" not in raw:
-            raise _fail("[portfolio_proxy] is missing required key(s): enabled.")
-        enabled = _boolean(raw, "enabled", "portfolio_proxy")
-        if not enabled:
-            unexpected = sorted(set(raw) - {"enabled"})
-            if unexpected:
-                raise _fail(
-                    "Disabled [portfolio_proxy] must not define "
-                    + ", ".join(unexpected)
-                    + "."
-                )
-            return PortfolioProxyConfig(False, None, ())
-        missing = sorted({"series_id", "weights"} - set(raw))
-        if missing:
-            raise _fail(
-                "[portfolio_proxy] is missing required key(s): "
-                + ", ".join(missing)
+                "Disabled [portfolio_proxy] must not define "
+                + ", ".join(unexpected)
                 + "."
             )
-        series_id = _string(raw, "series_id", "portfolio_proxy")
-        weights_raw = raw["weights"]
-        if not isinstance(weights_raw, Mapping):
-            raise _fail("portfolio_proxy.weights must be a TOML table.")
-        if set(weights_raw) != set(instruments):
-            raise _fail(
-                "portfolio_proxy.weights must contain exactly the configured "
-                "upstream instruments."
-            )
-        weights = {
-            ticker: _number(
-                weights_raw,
-                ticker,
-                "portfolio_proxy.weights",
-                minimum=0.0,
-            )
-            for ticker in instruments
-        }
-        if series_id in instruments:
-            raise _fail(
-                "portfolio_proxy.series_id must not duplicate an upstream instrument."
-            )
+        return PortfolioProxyConfig(False, None, ())
+    missing = sorted({"series_id", "weights"} - set(raw))
+    if missing:
+        raise _fail(
+            "[portfolio_proxy] is missing required key(s): " + ", ".join(missing) + "."
+        )
+    series_id = _string(raw, "series_id", "portfolio_proxy")
+    weights_raw = raw["weights"]
+    if not isinstance(weights_raw, Mapping):
+        raise _fail("portfolio_proxy.weights must be a TOML table.")
+    if set(weights_raw) != set(instruments):
+        raise _fail(
+            "portfolio_proxy.weights must contain exactly the configured "
+            "upstream instruments."
+        )
+    weights = {
+        ticker: _number(
+            weights_raw,
+            ticker,
+            "portfolio_proxy.weights",
+            minimum=0.0,
+        )
+        for ticker in instruments
+    }
+    if series_id in instruments:
+        raise _fail(
+            "portfolio_proxy.series_id must not duplicate an upstream instrument."
+        )
 
     if not math.isclose(sum(weights.values()), 1.0, abs_tol=1e-12):
         raise _fail("Portfolio proxy weights must sum to one.")
@@ -351,16 +322,17 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
     experiment_raw = _section(
         raw,
         "experiment",
-        {"experiment_id", "input_run_dir", "output_dir", "random_seed"}
-        | ({"protocol_version"} if "protocol_version" in raw["experiment"] else set()),
+        {
+            "experiment_id",
+            "protocol_version",
+            "input_run_dir",
+            "output_dir",
+            "random_seed",
+        },
     )
-    protocol_version = (
-        _string(experiment_raw, "protocol_version", "experiment")
-        if "protocol_version" in experiment_raw
-        else "1.0"
-    )
-    if protocol_version not in {"1.0", "2.0"}:
-        raise _fail("experiment.protocol_version must be either '1.0' or '2.0'.")
+    protocol_version = _string(experiment_raw, "protocol_version", "experiment")
+    if protocol_version != "2.0":
+        raise _fail("experiment.protocol_version must be '2.0'.")
     experiment = ExperimentConfig(
         experiment_id=_string(experiment_raw, "experiment_id", "experiment"),
         input_run_dir=Path(_string(experiment_raw, "input_run_dir", "experiment")),
@@ -414,9 +386,6 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             "The [upstream] project and artifact identity must match the "
             "historical-asset-risk v0.1 public contract."
         )
-    if protocol_version == "1.0" and upstream.instruments != _REQUIRED_INSTRUMENTS:
-        raise _fail("The [upstream] identity must match the v0.1 public contract.")
-
     periods_raw = _section(
         raw,
         "periods",
@@ -455,7 +424,6 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         raise _fail("[portfolio_proxy] must be a TOML table.")
     portfolio = _portfolio_proxy(
         portfolio_value,
-        protocol_version=protocol_version,
         instruments=upstream.instruments,
     )
 
@@ -472,7 +440,9 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
     if historical.quantile_method != "linear":
         raise _fail("historical.quantile_method must be linear.")
     if historical.variance_window != 252 or historical.var_window != 500:
-        raise _fail("v0.1 requires historical.variance_window=252 and var_window=500.")
+        raise _fail(
+            "Protocol 2.0 requires historical.variance_window=252 and var_window=500."
+        )
 
     ewma_raw = _section(raw, "ewma", {"lambda", "initialization_window"})
     ewma = EwmaConfig(
@@ -490,7 +460,9 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         ),
     )
     if ewma.lambda_ != 0.94 or ewma.initialization_window != 252:
-        raise _fail("v0.1 requires ewma.lambda=0.94 and initialization_window=252.")
+        raise _fail(
+            "Protocol 2.0 requires ewma.lambda=0.94 and initialization_window=252."
+        )
 
     garch_raw = _section(
         raw,
@@ -528,7 +500,7 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         or garch.stationarity_tolerance != 1e-8
     ):
         raise _fail(
-            "v0.1 requires garch.estimation_window=1250, "
+            "Protocol 2.0 requires garch.estimation_window=1250, "
             "refit_every_origins=20, input_scale=100.0, retry_count=1, "
             "and stationarity_tolerance=1e-8."
         )
@@ -593,7 +565,7 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         or experiment.random_seed != 42
     ):
         raise _fail(
-            "v0.1 requires evaluation levels [0.95, 0.99], primary level "
+            "Protocol 2.0 requires evaluation levels [0.95, 0.99], primary level "
             "0.95, bootstrap block length 20, 2000 resamples, confidence "
             "0.95, and random seed 42."
         )

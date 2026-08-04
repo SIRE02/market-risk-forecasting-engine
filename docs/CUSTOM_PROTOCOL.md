@@ -1,7 +1,24 @@
 # Custom Protocol v2
 
-Protocol v2 generalizes the experiment universe without changing the published
-frozen v0.1 study or its saved evidence.
+Protocol v2 defines the configurable experiment contract used by the engine.
+
+## Paired workflow
+
+Real-data examples are supplied as configuration pairs:
+
+- `configs/upstream/four_assets.toml` downloads and prepares the data;
+- `configs/four_assets.toml` validates and forecasts that exact output.
+
+Run both commands from the forecasting repository root:
+
+```powershell
+historical-asset-risk --config configs/upstream/four_assets.toml
+market-risk-forecast reproduce --config configs/four_assets.toml
+```
+
+The historical configuration's `output_dir`, ticker identities, and ticker
+ordering must match the forecasting configuration's `input_run_dir` and
+`upstream.instruments`.
 
 ## Configuration contract
 
@@ -35,8 +52,8 @@ the configured instrument identities and ordering. The adapter retains all
 schema, package-version, checksum, finite-value, date-order, no-forward-fill,
 and price/return reconciliation checks.
 
-Unlike frozen v0.1, protocol v2 derives minimum coverage from the largest
-configured model window. Each development, validation, and test period must
+Protocol v2 derives minimum coverage from the largest configured model window.
+Each development, validation, and test period must
 contain at least one target observation with that many prior returns. This
 prevents a syntactically valid but unusable short dataset from reaching model
 orchestration.
@@ -44,5 +61,6 @@ orchestration.
 ## Current boundary
 
 Protocol v2 currently generalizes instruments, periods, and the optional
-portfolio proxy. Model definitions and evaluation parameters retain the vetted
-v0.1 values. Changing those numerical rules is a separate protocol revision.
+portfolio proxy. Model definitions and evaluation parameters retain their
+vetted values. Changing those numerical rules requires a separate protocol
+revision.

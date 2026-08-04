@@ -1,4 +1,4 @@
-"""Canonical JSON and deterministic v0.1 identifiers."""
+"""Canonical JSON and deterministic experiment identifiers."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def make_fit_id(
     upstream_simple_return_checksum: str,
     package_version: str,
 ) -> str:
-    """Create a fit identifier from exactly the declared v0.1 material."""
+    """Create a fit identifier from exactly the declared material."""
     return deterministic_id(
         "fit_",
         {
@@ -92,7 +92,7 @@ def make_forecast_id(
     forecast_origin: pd.Timestamp,
     target_date: pd.Timestamp,
 ) -> str:
-    """Create a forecast identifier from exactly the declared v0.1 material."""
+    """Create a forecast identifier from exactly the declared material."""
     return deterministic_id(
         "fcst_",
         {

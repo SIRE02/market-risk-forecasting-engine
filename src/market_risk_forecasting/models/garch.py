@@ -140,7 +140,7 @@ def _fit_arch_model(
     distribution_name: ArchDistributionName,
     starting_values: np.ndarray[Any, np.dtype[np.float64]] | None,
 ) -> Any:
-    """Call arch with the exact frozen v0.1 fitting policy."""
+    """Call arch with the protocol-defined fitting policy."""
     model = arch_model(
         scaled_returns,
         mean="Zero",
@@ -178,15 +178,19 @@ class GarchModel:
             )
         if self.estimation_window != 1250:
             raise InputValueInvalidError(
-                "v0.1 GARCH requires a 1,250-observation estimation window."
+                "Protocol 2.0 GARCH requires a 1,250-observation estimation window."
             )
         if self.input_scale != 100.0:
-            raise InputValueInvalidError("v0.1 GARCH requires input_scale=100.0.")
+            raise InputValueInvalidError(
+                "Protocol 2.0 GARCH requires input_scale=100.0."
+            )
         if self.retry_count != 1:
-            raise InputValueInvalidError("v0.1 GARCH permits exactly one retry.")
+            raise InputValueInvalidError(
+                "Protocol 2.0 GARCH permits exactly one retry."
+            )
         if self.stationarity_tolerance != 1e-8:
             raise InputValueInvalidError(
-                "v0.1 GARCH requires stationarity_tolerance=1e-8."
+                "Protocol 2.0 GARCH requires stationarity_tolerance=1e-8."
             )
 
     @property
@@ -330,7 +334,7 @@ class GarchModel:
         )
 
     def validate_parameters(self, parameters: GarchParameters) -> None:
-        """Enforce the frozen sign, stationarity, and distribution constraints."""
+        """Enforce the sign, stationarity, and distribution constraints."""
         numeric = (parameters.omega, parameters.alpha, parameters.beta)
         if not all(math.isfinite(value) for value in numeric):
             raise ModelFitFailedError("GARCH parameters must be finite.")

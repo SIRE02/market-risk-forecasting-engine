@@ -21,7 +21,7 @@ from market_risk_forecasting.orchestration import (
     run_available_models,
     run_garch_candidates,
 )
-from market_risk_forecasting.upstream import load_upstream_run
+from market_risk_forecasting.upstream import coverage_requirements, load_upstream_run
 
 
 def _fixture_inputs(
@@ -33,6 +33,7 @@ def _fixture_inputs(
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
     complete = build_research_dataset(upstream, config.portfolio_proxy)
     dataset = ResearchDataset(

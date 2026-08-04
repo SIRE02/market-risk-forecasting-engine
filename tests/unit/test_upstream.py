@@ -21,6 +21,7 @@ from market_risk_forecasting.errors import (
     UpstreamVersionIncompatibleError,
 )
 from market_risk_forecasting.upstream import (
+    UpstreamRun,
     coverage_requirements,
     load_upstream_run,
     sha256_file,
@@ -46,8 +47,12 @@ def _mutate_json(path: Path, mutation: Any) -> None:
     path.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
 
 
+def _load_run(path: Path, config: ForecastConfig) -> UpstreamRun:
+    return load_upstream_run(path, config.upstream, coverage_requirements(config))
+
+
 def test_accepted_v010_run_loads(copied_run: Path, config: ForecastConfig) -> None:
-    run = load_upstream_run(copied_run, config.upstream)
+    run = _load_run(copied_run, config)
 
     assert run.installed_package_version == "0.1.0"
     assert run.instrument_order == ("SPY", "IEF", "GLD")
@@ -63,7 +68,7 @@ def test_accepted_v010_run_loads(copied_run: Path, config: ForecastConfig) -> No
     ("field", "value", "error"),
     [
         ("project", "other-project", UpstreamManifestInvalidError),
-        ("project_version", "0.2.0", UpstreamVersionIncompatibleError),
+        ("project_version", "9.9.9", UpstreamVersionIncompatibleError),
     ],
 )
 def test_wrong_manifest_identity_fails(
@@ -79,7 +84,7 @@ def test_wrong_manifest_identity_fails(
     )
 
     with pytest.raises(error):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 @pytest.mark.parametrize(
@@ -102,7 +107,7 @@ def test_wrong_schema_declaration_fails(
     _mutate_json(copied_run / "run_manifest.json", mutate)
 
     with pytest.raises(UpstreamSchemaIncompatibleError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_manifest_ticker_order_mismatch_fails(
@@ -114,22 +119,22 @@ def test_manifest_ticker_order_mismatch_fails(
     _mutate_json(copied_run / "run_manifest.json", mutate)
 
     with pytest.raises(UpstreamManifestInvalidError, match="ordering"):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_missing_required_file_fails(copied_run: Path, config: ForecastConfig) -> None:
     (copied_run / "data_quality_report.json").unlink()
 
     with pytest.raises(UpstreamManifestInvalidError, match="missing"):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("common_date_count_after_alignment", 3999),
-        ("first_common_date", "2008-01-01"),
-        ("last_common_date", "2025-12-29"),
+        ("common_date_count_after_alignment", 1251),
+        ("first_common_date", "2015-01-01"),
+        ("last_common_date", "2019-12-31"),
     ],
 )
 def test_quality_threshold_failure(
@@ -144,7 +149,7 @@ def test_quality_threshold_failure(
     )
 
     with pytest.raises(UpstreamQualityGateFailedError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_missing_returned_instrument_fails(
@@ -156,7 +161,7 @@ def test_missing_returned_instrument_fails(
     )
 
     with pytest.raises(UpstreamQualityGateFailedError, match="absent"):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_provider_return_order_does_not_override_canonical_order(
@@ -169,7 +174,7 @@ def test_provider_return_order_does_not_override_canonical_order(
         ),
     )
 
-    run = load_upstream_run(copied_run, config.upstream)
+    run = _load_run(copied_run, config)
 
     assert run.instrument_order == ("SPY", "IEF", "GLD")
 
@@ -177,8 +182,21 @@ def test_provider_return_order_does_not_override_canonical_order(
 def test_custom_protocol_accepts_configured_instrument_universe(
     copied_run: Path,
     project_root: Path,
+    tmp_path: Path,
 ) -> None:
-    custom = load_config(project_root / "configs" / "aapl_msft_gld.toml")
+    source = (project_root / "config.example.toml").read_text(encoding="utf-8")
+    custom_path = tmp_path / "custom.toml"
+    custom_path.write_text(
+        source.replace(
+            'instruments = ["SPY", "IEF", "GLD"]',
+            'instruments = ["AAPL", "MSFT", "GLD"]',
+        ).replace(
+            "weights = { SPY = 0.60, IEF = 0.30, GLD = 0.10 }",
+            "weights = { AAPL = 0.60, MSFT = 0.30, GLD = 0.10 }",
+        ),
+        encoding="utf-8",
+    )
+    custom = load_config(custom_path)
     returns_path = copied_run / "simple_returns.csv"
     frame = pd.read_csv(returns_path).rename(columns={"SPY": "AAPL", "IEF": "MSFT"})
     frame.to_csv(returns_path, index=False)
@@ -211,7 +229,7 @@ def test_forward_fill_declaration_fails(
     _mutate_json(copied_run / "run_manifest.json", mutate)
 
     with pytest.raises(UpstreamQualityGateFailedError, match="forward_fill"):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_duplicate_return_date_fails(copied_run: Path, config: ForecastConfig) -> None:
@@ -221,7 +239,7 @@ def test_duplicate_return_date_fails(copied_run: Path, config: ForecastConfig) -
     frame.to_csv(path, index=False)
 
     with pytest.raises(InputDateDuplicateError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_unsorted_return_date_fails(copied_run: Path, config: ForecastConfig) -> None:
@@ -231,7 +249,7 @@ def test_unsorted_return_date_fails(copied_run: Path, config: ForecastConfig) ->
     frame.to_csv(path, index=False)
 
     with pytest.raises(InputDateUnsortedError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_nonnumeric_return_fails(copied_run: Path, config: ForecastConfig) -> None:
@@ -242,7 +260,7 @@ def test_nonnumeric_return_fails(copied_run: Path, config: ForecastConfig) -> No
     frame.to_csv(path, index=False)
 
     with pytest.raises(InputValueInvalidError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_checksums_are_deterministic(copied_run: Path) -> None:
@@ -266,7 +284,7 @@ def test_missing_installed_package_is_typed(
     monkeypatch.setattr("market_risk_forecasting.upstream.version", missing)
 
     with pytest.raises(UpstreamPackageMissingError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)
 
 
 def test_wrong_installed_package_version_is_typed(
@@ -276,8 +294,8 @@ def test_wrong_installed_package_version_is_typed(
 ) -> None:
     monkeypatch.setattr(
         "market_risk_forecasting.upstream.version",
-        lambda _name: "0.2.0",
+        lambda _name: "9.9.9",
     )
 
     with pytest.raises(UpstreamVersionIncompatibleError):
-        load_upstream_run(copied_run, config.upstream)
+        _load_run(copied_run, config)

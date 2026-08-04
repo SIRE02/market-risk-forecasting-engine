@@ -6,7 +6,7 @@ from enum import StrEnum
 
 
 class ErrorCode(StrEnum):
-    """Machine-readable error codes declared by the v0.1 specification."""
+    """Machine-readable error codes exposed by the forecasting engine."""
 
     CONFIG_INVALID = "CONFIG_INVALID"
     UPSTREAM_PACKAGE_MISSING = "UPSTREAM_PACKAGE_MISSING"

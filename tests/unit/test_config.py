@@ -1,51 +1,54 @@
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import pytest
+from historical_asset_risk.config import (
+    load_configuration as load_upstream_configuration,
+)
 
 from market_risk_forecasting.config import load_config
 from market_risk_forecasting.errors import ConfigInvalidError
 
 
-def test_frozen_configuration_loads(project_root: Path) -> None:
-    config = load_config(project_root / "configs" / "frozen_research.toml")
+def test_real_data_configuration_pair_matches(project_root: Path) -> None:
+    name = "four_assets"
+    acquisition = load_upstream_configuration(
+        project_root / "configs" / "upstream" / f"{name}.toml"
+    )
+    forecasting = load_config(project_root / "configs" / f"{name}.toml")
 
-    assert config.experiment.experiment_id == "risk-v01-frozen"
-    assert config.upstream.instruments == ("SPY", "IEF", "GLD")
-    assert config.portfolio_proxy.weights == {
-        "SPY": 0.60,
-        "IEF": 0.30,
-        "GLD": 0.10,
-    }
-    assert config.ewma.lambda_ == 0.94
-    assert config.garch.estimation_window == 1250
+    assert acquisition.tickers == forecasting.upstream.instruments
+    assert acquisition.output_dir == forecasting.experiment.input_run_dir
+    assert date.fromisoformat(acquisition.start_date) <= (
+        forecasting.periods.development_start
+    )
+    assert date.fromisoformat(acquisition.end_date) > forecasting.periods.test_end
 
 
-def test_custom_configuration_accepts_dynamic_universe(project_root: Path) -> None:
-    config = load_config(project_root / "configs" / "aapl_msft_gld.toml")
+def test_configuration_accepts_dynamic_universe(project_root: Path) -> None:
+    config = load_config(project_root / "configs" / "four_assets.toml")
 
     assert config.experiment.protocol_version == "2.0"
-    assert config.upstream.instruments == ("AAPL", "MSFT", "GLD")
+    assert config.upstream.instruments == ("AAPL", "MSFT", "GLD", "TLT")
     assert config.portfolio_proxy.enabled is False
     assert config.portfolio_proxy.series_id is None
     assert config.portfolio_proxy.weights == {}
     assert config.to_dict()["portfolio_proxy"] == {"enabled": False}
 
 
-def test_custom_proxy_weights_must_match_dynamic_universe(
+def test_proxy_weights_must_match_dynamic_universe(
     project_root: Path,
     tmp_path: Path,
 ) -> None:
-    source = (project_root / "configs" / "aapl_msft_gld.toml").read_text(
-        encoding="utf-8"
-    )
+    source = (project_root / "configs" / "four_assets.toml").read_text(encoding="utf-8")
     path = tmp_path / "custom-proxy.toml"
     path.write_text(
         source.replace(
             "[portfolio_proxy]\nenabled = false",
             '[portfolio_proxy]\nenabled = true\nseries_id = "TECH_GOLD"\n'
-            "weights = { AAPL = 0.50, MSFT = 0.30, GLD = 0.20 }",
+            "weights = { AAPL = 0.40, MSFT = 0.30, GLD = 0.20, TLT = 0.10 }",
         ),
         encoding="utf-8",
     )
@@ -55,9 +58,10 @@ def test_custom_proxy_weights_must_match_dynamic_universe(
     assert config.portfolio_proxy.enabled is True
     assert config.portfolio_proxy.series_id == "TECH_GOLD"
     assert config.portfolio_proxy.weights == {
-        "AAPL": 0.50,
+        "AAPL": 0.40,
         "MSFT": 0.30,
         "GLD": 0.20,
+        "TLT": 0.10,
     }
 
 
@@ -69,13 +73,24 @@ def test_effective_configuration_uses_public_toml_names(project_root: Path) -> N
     assert effective["ewma"]["lambda"] == 0.94
     assert "lambda_" not in effective["ewma"]
     assert effective["periods"]["test_end"] == "2025-12-31"
-    assert "protocol_version" not in effective["experiment"]
+    assert effective["experiment"]["protocol_version"] == "2.0"
     assert effective["portfolio_proxy"] == {
-        "series_id": "MIX_60_30_10",
-        "SPY": 0.60,
-        "IEF": 0.30,
-        "GLD": 0.10,
+        "enabled": True,
+        "series_id": "FIXTURE_PROXY",
+        "weights": {"SPY": 0.60, "IEF": 0.30, "GLD": 0.10},
     }
+
+
+def test_legacy_protocol_version_fails(project_root: Path, tmp_path: Path) -> None:
+    source = (project_root / "config.example.toml").read_text(encoding="utf-8")
+    path = tmp_path / "legacy.toml"
+    path.write_text(
+        source.replace('protocol_version = "2.0"', 'protocol_version = "1.0"'),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigInvalidError, match="must be '2.0'"):
+        load_config(path)
 
 
 def test_unknown_key_fails(project_root: Path, tmp_path: Path) -> None:
@@ -117,7 +132,7 @@ def test_incompatible_upstream_identity_fails(
     source = (project_root / "config.example.toml").read_text(encoding="utf-8")
     path = tmp_path / "upstream.toml"
     path.write_text(
-        source.replace('package_version = "0.1.0"', 'package_version = "0.2.0"'),
+        source.replace('package_version = "0.1.0"', 'package_version = "9.9.9"'),
         encoding="utf-8",
     )
 
@@ -125,7 +140,7 @@ def test_incompatible_upstream_identity_fails(
         load_config(path)
 
 
-def test_nonfrozen_historical_windows_fail(project_root: Path, tmp_path: Path) -> None:
+def test_protocol_historical_windows_fail(project_root: Path, tmp_path: Path) -> None:
     source = (project_root / "config.example.toml").read_text(encoding="utf-8")
     path = tmp_path / "windows.toml"
     path.write_text(
@@ -137,7 +152,7 @@ def test_nonfrozen_historical_windows_fail(project_root: Path, tmp_path: Path) -
         load_config(path)
 
 
-def test_nonfrozen_ewma_parameters_fail(project_root: Path, tmp_path: Path) -> None:
+def test_protocol_ewma_parameters_fail(project_root: Path, tmp_path: Path) -> None:
     source = (project_root / "config.example.toml").read_text(encoding="utf-8")
     path = tmp_path / "ewma.toml"
     path.write_text(source.replace("lambda = 0.94", "lambda = 0.95"), encoding="utf-8")
@@ -146,7 +161,7 @@ def test_nonfrozen_ewma_parameters_fail(project_root: Path, tmp_path: Path) -> N
         load_config(path)
 
 
-def test_nonfrozen_garch_protocol_fails(project_root: Path, tmp_path: Path) -> None:
+def test_protocol_garch_parameters_fail(project_root: Path, tmp_path: Path) -> None:
     source = (project_root / "config.example.toml").read_text(encoding="utf-8")
     path = tmp_path / "garch.toml"
     path.write_text(
@@ -158,7 +173,7 @@ def test_nonfrozen_garch_protocol_fails(project_root: Path, tmp_path: Path) -> N
         load_config(path)
 
 
-def test_nonfrozen_evaluation_protocol_fails(
+def test_protocol_evaluation_parameters_fail(
     project_root: Path,
     tmp_path: Path,
 ) -> None:

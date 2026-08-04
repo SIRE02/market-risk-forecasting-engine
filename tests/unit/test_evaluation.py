@@ -149,7 +149,7 @@ def _evaluation_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:
             has_quantile = model_id != "historical_variance_252"
             rows.append(
                 {
-                    "experiment_id": "risk-v01-frozen",
+                    "experiment_id": "risk-v02-test",
                     "series_id": "SPY",
                     "model_id": model_id,
                     "forecast_origin": origin,

@@ -19,7 +19,7 @@ from market_risk_forecasting.orchestration import (
     persist_benchmark_artifacts,
     run_historical_benchmarks,
 )
-from market_risk_forecasting.upstream import load_upstream_run
+from market_risk_forecasting.upstream import coverage_requirements, load_upstream_run
 
 
 def _fixture_inputs(project_root: Path) -> tuple[object, object, str]:
@@ -27,6 +27,7 @@ def _fixture_inputs(project_root: Path) -> tuple[object, object, str]:
     upstream = load_upstream_run(
         project_root / "data" / "fixtures" / "upstream_run",
         config.upstream,
+        coverage_requirements(config),
     )
     dataset = build_research_dataset(upstream, config.portfolio_proxy)
     return config, dataset, upstream.checksums["simple_returns.csv"]

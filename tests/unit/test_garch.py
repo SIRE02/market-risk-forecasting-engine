@@ -127,7 +127,7 @@ def test_invalid_persistence_and_student_t_dof_fail() -> None:
         )
 
 
-def test_fit_retries_once_with_the_frozen_starting_values(
+def test_fit_retries_once_with_the_protocol_starting_values(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[str, np.ndarray[Any, np.dtype[np.float64]] | None]] = []
