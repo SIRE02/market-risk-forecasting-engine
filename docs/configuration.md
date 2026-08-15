@@ -6,16 +6,16 @@ run normally uses a second TOML file for the upstream
 
 ## Paired data workflow
 
-The repository includes a matching pair:
+The repository includes one real-data configuration pair:
 
-- `configs/upstream/four_assets.toml` acquires and prepares market data.
-- `configs/four_assets.toml` validates that output and runs forecasting.
+- `configs/upstream/dotcom_technology.toml` acquires and prepares market data.
+- `configs/dotcom_technology.toml` validates that output and runs forecasting.
 
 Run both commands from the repository root:
 
-```powershell
-historical-asset-risk --config configs/upstream/four_assets.toml
-market-risk-forecast reproduce --config configs/four_assets.toml
+```console
+historical-asset-risk --config configs/upstream/dotcom_technology.toml
+market-risk-forecast reproduce --config configs/dotcom_technology.toml
 ```
 
 The acquisition `output_dir` must equal the forecasting `input_run_dir`. The
@@ -45,7 +45,7 @@ universe expected from `historical-asset-risk-engine`.
 ```toml
 [upstream]
 project = "historical-asset-risk-engine"
-package_version = "0.1.0"
+package_version = "0.1.1"
 simple_returns_schema_id = "historical-asset-risk/simple-returns"
 simple_returns_schema_version = "1.experimental"
 simple_returns_units = "decimal_return_per_observation"
@@ -125,6 +125,10 @@ replaces the former fixed date and observation-count gates.
 
 Run validation without producing forecasts:
 
-```powershell
+```console
 market-risk-forecast validate-input --config config.example.toml
 ```
+
+`config.example.toml` uses the committed synthetic fixture and is intended for
+offline validation and automated tests. It is separate from the sole real-data
+example above.

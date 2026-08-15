@@ -1,170 +1,204 @@
 # Market Risk Forecasting Engine
 
-A reproducible Python research tool for one-session-ahead variance and Value
-at Risk (VaR) forecasting. It compares transparent historical benchmarks with
+[![CI](https://github.com/SIRE02/market-risk-forecasting-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/SIRE02/market-risk-forecasting-engine/actions/workflows/ci.yml)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+A reproducible Python research tool for one-session-ahead variance and Value at
+Risk (VaR) forecasting. It compares transparent historical benchmarks with
 EWMA, Gaussian GARCH(1,1), and Student-t GARCH(1,1), evaluates the forecasts,
 and produces a traceable research report.
 
 This is historical research software. It is not a live trading system,
 investment advice, a regulatory model, or a guarantee of future performance.
 
-## Why are there two projects?
+## Example output
 
-Reliable forecasting starts with reliable data, but downloading and cleaning
-market data is a different responsibility from fitting and evaluating risk
-models. The workflow deliberately separates them:
+![Final-test candidate effects by series](docs/images/dotcom_series_comparisons.png)
 
-| Project | Responsibility | Network access |
+This SPY, MSFT, CSCO, and AAPL example uses data acquired on August 15, 2026,
+with observations through July 31, 2026. It shows final-test candidate-minus-
+benchmark loss differences with 95% moving-block bootstrap intervals. Values
+below zero favor the candidate. The VaR panel is expressed in basis points for
+readability; the generated report retains unscaled values in its tables.
+
+## How the two projects fit together
+
+Reliable forecasts require a validated return history, but acquiring and
+cleaning market data is a different responsibility from fitting and evaluating
+forecasting models. The workflow therefore uses two repositories:
+
+| Project | Responsibility | Network access while running |
 | --- | --- | --- |
-| `historical-asset-risk-engine` | Download adjusted prices, clean and align observations, calculate returns, and record data-quality evidence | Yes, when Yahoo is selected |
-| `market-risk-forecasting-engine` | Validate the saved return artifacts, run forecasts, evaluate models, and generate the research report | No |
-
-The separation provides a stable boundary:
+| [`historical-asset-risk-engine`](https://github.com/SIRE02/historical-asset-risk-engine) | Download adjusted prices, validate and align observations, calculate returns, and record data-quality evidence | Yes when Yahoo Finance is selected |
+| `market-risk-forecasting-engine` | Validate saved return artifacts, run forecasts, evaluate models, and generate the research report | No |
 
 ```text
-Yahoo Finance
+Yahoo Finance or local prices
     -> historical-asset-risk-engine
-    -> simple_returns.csv + quality report + run manifest
+    -> simple_returns.csv
+       data_quality_report.json
+       run_manifest.json
     -> market-risk-forecasting-engine
-    -> forecasts + evaluation tables + research report
+    -> forecasts, diagnostics, evaluation tables, figures, and report
 ```
 
-You do not need to clone both repositories. Installing this repository also
-installs the pinned historical package and its `historical-asset-risk` command.
-The historical repository must remain publicly accessible because it is a Git
-dependency.
+You do not need to clone the historical repository separately. This project's
+dependency declaration installs its `historical-asset-risk` command from an
+exact reviewed commit. The historical repository must remain publicly accessible
+because it is a Git dependency.
+
+## How `historical-asset-risk-engine` is implemented here
+
+The integration is an artifact boundary rather than a copy of the historical
+project's source code:
+
+1. [`pyproject.toml`](pyproject.toml) pins the historical package to an exact
+   Git commit, so installation supplies a known acquisition CLI and artifact
+   contract.
+2. [`configs/upstream/dotcom_technology.toml`](configs/upstream/dotcom_technology.toml)
+   is read by `historical-asset-risk`. It declares the provider, tickers, date
+   range, data-quality controls, and output directory.
+3. The historical run writes the three handoff files below. Additional charts,
+   statistics, and adjusted-price files remain owned by the historical project.
+4. [`configs/dotcom_technology.toml`](configs/dotcom_technology.toml) declares
+   the exact package, schema, units, ordered instruments, input directory,
+   experiment periods, and forecasting controls expected by this project.
+5. Before fitting a model, the forecasting engine checks the installed package
+   version, project and schema identities, instrument ordering, date coverage,
+   quality evidence, finite values, observation reconciliation, and SHA-256
+   checksums. A mismatch stops the experiment instead of silently adapting it.
+
+| Handoff artifact | How this project uses it |
+| --- | --- |
+| `simple_returns.csv` | Supplies the canonical ordered decimal-return series |
+| `data_quality_report.json` | Proves the upstream alignment and quality gates succeeded |
+| `run_manifest.json` | Supplies project, version, schema, lineage, and checksum declarations |
+
+This separation makes a forecasting run traceable to the exact upstream data
+artifact without coupling the forecasting models to Yahoo Finance or to the
+historical engine's internal implementation.
 
 ## Quickstart from a clean computer
 
-Run every command in this section from the root of this repository.
+Run the commands from PowerShell, Bash, or another shell supported by Conda.
+Only the environment-activation details may differ between shells.
 
 ### 1. Install prerequisites
 
-You need:
+You need Git, Miniconda or Anaconda, internet access for installation, and a
+platform supported by Python 3.12 and the declared dependencies.
 
-- Git;
-- Miniconda or Anaconda;
-- internet access for installation and the Yahoo download;
-- a platform supported by Python 3.12 and the declared dependencies.
-
-Clone the repository:
-
-```powershell
+```console
 git clone https://github.com/SIRE02/market-risk-forecasting-engine.git
-Set-Location market-risk-forecasting-engine
-```
-
-Create and activate the environment:
-
-```powershell
+cd market-risk-forecasting-engine
 conda env create -f environment.yml
 conda activate market-risk-forecasting-engine
-python -m pip install -e .
+python -m pip install --no-deps --no-build-isolation -e .
 ```
 
-Confirm that installation provided both commands:
+The Conda environment installs the exact dependency resolution recorded in
+[`requirements.lock`](requirements.lock). Confirm that installation supplied
+both project commands:
 
-```powershell
+```console
 historical-asset-risk --help
 market-risk-forecast --help
 ```
 
-### 2. Download and prepare the example data
+### 2. Validate the offline synthetic fixture
 
-The checked-in historical configuration requests AAPL, MSFT, GLD, and TLT
-from 2010 through 2025:
+Before downloading market data, verify the package and public handoff contract
+against the committed deterministic fixture:
 
-```powershell
-historical-asset-risk --config configs/upstream/four_assets.toml
+```console
+market-risk-forecast validate-input --config config.example.toml
 ```
 
-The command creates:
-
-```text
-data/upstream/aapl-msft-gld-tlt-2010-2025/
-```
-
-The three files required by forecasting are:
-
-```text
-simple_returns.csv
-data_quality_report.json
-run_manifest.json
-```
-
-The historical run also writes adjusted prices, descriptive statistics, and
-charts. Its configured `end_date` is `2026-01-01` because provider end dates
-are exclusive; the requested data therefore ends in 2025.
-
-Downloaded provider data is intentionally ignored by Git. Every user acquires
-their own copy and is responsible for complying with provider terms.
-
-### 3. Validate the handoff
-
-The matching forecasting configuration is
-[`configs/four_assets.toml`](configs/four_assets.toml):
-
-```powershell
-market-risk-forecast validate-input --config configs/four_assets.toml
-```
-
-A successful validation reports:
+The command writes nothing. A successful check includes:
 
 ```text
 Input validation: ok
-Series: AAPL, MSFT, GLD, TLT
+Upstream package: historical-asset-risk-engine 0.1.1
+Series: SPY, IEF, GLD, FIXTURE_PROXY
 ```
 
-Validation checks the historical package version, project identity, schema,
-instrument identities and ordering, date coverage, data-quality evidence,
-finite return values, observation counts, and SHA-256 checksums.
+The fixture is synthetic and exists only for offline validation and tests. It
+must not be interpreted as historical market evidence.
 
-### 4. Run forecasting, evaluation, and reporting
+### 3. Acquire the dot-com technology study data
 
-Use `reproduce` for the complete workflow:
+The sole real-data example requests SPY, MSFT, CSCO, and AAPL from January 1993
+through July 2026:
 
-```powershell
-market-risk-forecast reproduce --config configs/four_assets.toml
+```console
+historical-asset-risk --config configs/upstream/dotcom_technology.toml
 ```
 
-GARCH estimation is computationally heavier than input validation, so this
-step can take several minutes. The completed experiment is written to:
+The command writes provider data and evidence to:
 
 ```text
-outputs/risk-aapl-msft-gld-tlt/
+data/upstream/spy-msft-csco-aapl-1993-2026/
 ```
 
-Start with the generated report:
+The configured Yahoo Finance `end_date` is `2026-08-01`. Provider end dates are
+exclusive, so the requested sample ends on July 31, 2026. Downloaded provider
+data is ignored by Git; every user acquires their own copy and is responsible
+for complying with provider terms.
+
+### 4. Validate the real-data handoff
+
+```console
+market-risk-forecast validate-input --config configs/dotcom_technology.toml
+```
+
+The acquisition `output_dir`, forecasting `input_run_dir`, and ordered ticker
+lists must match exactly.
+
+### 5. Reproduce forecasting, evaluation, and reporting
+
+```console
+market-risk-forecast reproduce --config configs/dotcom_technology.toml
+```
+
+This long-history experiment performs repeated Gaussian and Student-t GARCH
+fits and can take substantial time. The completed experiment is written to:
 
 ```text
-outputs/risk-aapl-msft-gld-tlt/research_report.md
+outputs/risk-dotcom-technology/
 ```
 
-The report starts with time-series plots of forecast volatility against
-realized-return context, realized losses against 95% VaR with exceptions
-marked, and rolling candidate-versus-benchmark performance. The output
-directory also contains forecasts, realizations, fit diagnostics, aggregate
-evaluation tables, figures, manifests, and checksums.
+Start with:
 
-## How the paired configurations work
+```text
+outputs/risk-dotcom-technology/research_report.md
+```
 
-Each real-data example has two matching files:
+The report presents forecast volatility against realized-return context, losses
+against 95% VaR with exceptions marked, balanced-panel rolling performance,
+aggregate and per-series bootstrap effects, 95%/99% VaR calibration,
+availability, and fit diagnostics. Dated charts identify the development,
+validation, and final-test periods and stop at the final observed target date.
+Numerical artifacts, figures, manifests, and checksums remain in the same
+experiment directory.
+
+## The paired configuration contract
+
+The repository contains one real-data pair:
 
 | Data acquisition | Forecasting |
 | --- | --- |
-| [`configs/upstream/four_assets.toml`](configs/upstream/four_assets.toml) | [`configs/four_assets.toml`](configs/four_assets.toml) |
+| [`configs/upstream/dotcom_technology.toml`](configs/upstream/dotcom_technology.toml) | [`configs/dotcom_technology.toml`](configs/dotcom_technology.toml) |
 
-The acquisition configuration's `output_dir` must equal the forecasting
-configuration's `input_run_dir`. Tickers must also match exactly, including
-their ordering. Forecasting rejects accidental mismatches instead of silently
-relabeling columns.
+The files deliberately configure different stages. The acquisition file owns
+provider and adjusted-price preparation. The forecasting file owns experiment
+periods, model settings, evaluation settings, and the expected artifact
+identity. Their directory and instrument declarations form the shared boundary.
 
 ## Use your own assets
 
-Copy one pair of example configurations and change both files together.
-
-In the historical configuration, select the provider, tickers, requested
-dates, and output directory:
+Copy the real-data pair and change both files together. In the acquisition
+configuration, choose the provider, ordered tickers, dates, and output directory:
 
 ```toml
 [analysis]
@@ -175,7 +209,8 @@ end_date = "2026-01-01"
 output_dir = "data/upstream/nvda-amzn-gld-tlt-2010-2025"
 ```
 
-In the forecasting configuration, use the same ordered tickers and directory:
+In the forecasting configuration, use the identical instrument order and
+directory:
 
 ```toml
 [experiment]
@@ -187,32 +222,16 @@ output_dir = "outputs/risk-nvda-amzn-gld-tlt"
 instruments = ["NVDA", "AMZN", "GLD", "TLT"]
 ```
 
-Keep the remaining schema identity and model sections from the example file.
-Important rules:
+Keep the remaining schema identity and model sections from the example. Choose
+experiment periods before inspecting comparative results, ensure each period
+has targets with enough prior observations for the largest model window, and
+use a new experiment ID and output directory for every materially different
+run.
 
-- every asset needs sufficient shared history;
-- every period needs targets with enough prior returns for the largest
-  configured model window;
-- development, validation, and test periods must each contain eligible target
-  observations;
-- choose experiment periods before inspecting comparative results;
-- use a new experiment ID and output directory for a materially different run.
-
-The example keeps only individual assets by setting
+The checked-in example forecasts individual assets by setting
 `portfolio_proxy.enabled = false`. The engine can also add a dynamic
-constant-weight proxy. See the
-[`configuration guide`](docs/configuration.md) for the complete contract.
-
-## Documentation
-
-- [`Configuration`](docs/configuration.md) explains the paired data workflow,
-  experiment contract, portfolio proxies, and input validation.
-- [`Methodology and limitations`](docs/methodology-and-limitations.md) documents the models,
-  forecast timing, evaluation rules, statistical inference, and research
-  boundaries.
-- [`Data`](docs/data.md) distinguishes committed synthetic fixtures from
-  ignored provider artifacts.
-- [`Changelog`](docs/changelog.md) records published versions.
+constant-weight return proxy. See the [configuration guide](docs/configuration.md)
+for the complete contract.
 
 ## Commands
 
@@ -225,8 +244,8 @@ constant-weight proxy. See the
 | `market-risk-forecast reproduce --config FILE` | Validate, run, report, and verify in one command |
 
 `run` and `reproduce` never overwrite a materially different existing
-experiment. If you change data or configuration, choose a new experiment ID
-and output directory.
+experiment. If data or configuration changes, choose a new experiment ID and
+output directory.
 
 ## What the forecasting engine does
 
@@ -241,77 +260,106 @@ For every configured series, the engine:
 - evaluates variance with QLIKE and VaR with lower-tail pinball loss;
 - reports VaR exceptions, Kupiec coverage, Christoffersen independence, and
   deterministic moving-block bootstrap comparisons;
-- plots forecast and realized histories, VaR exceptions, and rolling model
-  advantage so changes through time are visible before the aggregate tables;
-- retains failed fits and diagnostics instead of silently substituting another
-  model.
+- plots forecasts, VaR exceptions, balanced-panel rolling model advantage,
+  per-series effects, and 95%/99% VaR calibration; and
+- retains failed fits and diagnostics instead of substituting another model.
 
 Instruments, periods, the optional portfolio proxy, model windows, EWMA decay,
-GARCH fitting controls, bootstrap settings, and the deterministic seed are
-configurable. The current artifact schema reports 95% and 99% VaR.
+GARCH controls, bootstrap settings, and the deterministic seed are configurable.
+The current artifact schema reports 95% and 99% VaR.
 
 ## Reproducibility and artifacts
 
-The forecasting engine consumes the public
-`historical-asset-risk/simple-returns` artifact contract. It records:
+Every experiment records:
 
-- the effective experiment configuration;
-- the installed package and source identities;
+- the effective configuration;
+- installed package, dependency, commit, and source-tree identities;
 - upstream and generated-file checksums;
 - dataset lineage and quality adjustments;
 - exact training windows, forecast origins, and target dates;
-- optimizer outcomes, retries, failures, and availability;
+- optimizer outcomes, retries, failures, and availability; and
 - separate validation and final-test results.
 
-Downloaded data belongs under `data/upstream/`, and experiment results belong
-under `outputs/`. Both directories are ignored by Git.
+Downloaded data belongs under `data/upstream/`, and generated experiments
+belong under `outputs/`. Both are ignored by Git.
+
+## Documentation
+
+- [Configuration](docs/configuration.md) explains the paired workflow,
+  experiment contract, portfolio proxies, and input validation.
+- [Methodology and limitations](docs/methodology-and-limitations.md) documents
+  models, forecast timing, evaluation, statistical inference, references, and
+  research boundaries.
+- [Data](docs/data.md) distinguishes committed synthetic fixtures from ignored
+  provider artifacts.
+- [Changelog](docs/changelog.md) records published versions.
 
 ## Troubleshooting
 
 ### A command is not recognized
 
-Activate the environment and reinstall the editable package:
+Activate the environment and reinstall the editable package without resolving
+new dependencies:
 
-```powershell
+```console
 conda activate market-risk-forecasting-engine
-python -m pip install -e .
+python -m pip install --no-deps --no-build-isolation -e .
 ```
 
 ### Installation cannot fetch the historical package
 
 Confirm Git and internet access are available and that the pinned
-`historical-asset-risk-engine` commit is public.
+[`historical-asset-risk-engine`](https://github.com/SIRE02/historical-asset-risk-engine)
+commit remains public.
 
-### Forecasting says required upstream files are missing
+### Required upstream files are missing
 
 Run the matching `historical-asset-risk --config ...` command first and verify
 that the acquisition `output_dir` matches the forecasting `input_run_dir`.
 
+### Yahoo reports `database is locked`
+
+If another Python or yfinance process already holds the cache, close that
+process and retry. If the error persists, remove only yfinance's regenerable
+cookie and time-zone caches before retrying:
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\py-yfinance\cookies.db" -Force `
+  -ErrorAction SilentlyContinue
+Remove-Item "$env:LOCALAPPDATA\py-yfinance\tkr-tz.db" -Force `
+  -ErrorAction SilentlyContinue
+```
+
 ### Instruments or ordering do not match
 
-Make the historical `tickers` list and forecasting `instruments` list
-identical. Ordering is part of the artifact contract.
+Make the historical `tickers` list and forecasting `instruments` list identical.
+Ordering is part of the artifact contract.
 
 ### History is insufficient
 
-Choose assets with longer shared histories or request an earlier start date.
-Newly listed assets can shorten the common aligned dataset for every series.
+Choose assets with longer shared histories, request an earlier start date, or
+reduce model windows before inspecting results. Newly listed assets can shorten
+the common aligned dataset for every series.
 
 ### An output directory already exists
 
-Completed runs are treated as immutable evidence. Use a new experiment ID and
-output directory rather than overwriting the old run.
+Completed runs are immutable evidence. Use a new experiment ID and output
+directory rather than overwriting the old run.
 
 ## Development
 
-Run the release checks from the repository root:
+Install the locked environment and editable package, then run the release checks
+from the repository root:
 
-```powershell
+```console
+conda env create -f environment.yml
+conda activate market-risk-forecasting-engine
+python -m pip install --no-deps --no-build-isolation -e .
 python -m ruff format --check .
 python -m ruff check .
 python -m mypy src
 python -m pytest -q
-python -m build
+python -m build --no-isolation
 ```
 
-Release history is recorded in [`docs/changelog.md`](docs/changelog.md).
+Release history is recorded in [docs/changelog.md](docs/changelog.md).

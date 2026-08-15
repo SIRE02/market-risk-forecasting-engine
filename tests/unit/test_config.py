@@ -13,7 +13,17 @@ from market_risk_forecasting.errors import ConfigInvalidError
 
 
 def test_real_data_configuration_pair_matches(project_root: Path) -> None:
-    name = "four_assets"
+    name = "dotcom_technology"
+    forecasting_names = sorted(
+        path.stem for path in (project_root / "configs").glob("*.toml")
+    )
+    acquisition_names = sorted(
+        path.stem for path in (project_root / "configs" / "upstream").glob("*.toml")
+    )
+
+    assert forecasting_names == [name]
+    assert acquisition_names == [name]
+
     acquisition = load_upstream_configuration(
         project_root / "configs" / "upstream" / f"{name}.toml"
     )
@@ -28,9 +38,9 @@ def test_real_data_configuration_pair_matches(project_root: Path) -> None:
 
 
 def test_configuration_accepts_dynamic_universe(project_root: Path) -> None:
-    config = load_config(project_root / "configs" / "four_assets.toml")
+    config = load_config(project_root / "configs" / "dotcom_technology.toml")
 
-    assert config.upstream.instruments == ("AAPL", "MSFT", "GLD", "TLT")
+    assert config.upstream.instruments == ("SPY", "MSFT", "CSCO", "AAPL")
     assert config.portfolio_proxy.enabled is False
     assert config.portfolio_proxy.series_id is None
     assert config.portfolio_proxy.weights == {}
@@ -41,13 +51,15 @@ def test_proxy_weights_must_match_dynamic_universe(
     project_root: Path,
     tmp_path: Path,
 ) -> None:
-    source = (project_root / "configs" / "four_assets.toml").read_text(encoding="utf-8")
+    source = (project_root / "configs" / "dotcom_technology.toml").read_text(
+        encoding="utf-8"
+    )
     path = tmp_path / "custom-proxy.toml"
     path.write_text(
         source.replace(
             "[portfolio_proxy]\nenabled = false",
-            '[portfolio_proxy]\nenabled = true\nseries_id = "TECH_GOLD"\n'
-            "weights = { AAPL = 0.40, MSFT = 0.30, GLD = 0.20, TLT = 0.10 }",
+            '[portfolio_proxy]\nenabled = true\nseries_id = "DOTCOM_PROXY"\n'
+            "weights = { SPY = 0.40, MSFT = 0.30, CSCO = 0.20, AAPL = 0.10 }",
         ),
         encoding="utf-8",
     )
@@ -55,12 +67,12 @@ def test_proxy_weights_must_match_dynamic_universe(
     config = load_config(path)
 
     assert config.portfolio_proxy.enabled is True
-    assert config.portfolio_proxy.series_id == "TECH_GOLD"
+    assert config.portfolio_proxy.series_id == "DOTCOM_PROXY"
     assert config.portfolio_proxy.weights == {
-        "AAPL": 0.40,
+        "SPY": 0.40,
         "MSFT": 0.30,
-        "GLD": 0.20,
-        "TLT": 0.10,
+        "CSCO": 0.20,
+        "AAPL": 0.10,
     }
 
 
@@ -118,7 +130,7 @@ def test_incompatible_upstream_identity_fails(
     source = (project_root / "config.example.toml").read_text(encoding="utf-8")
     path = tmp_path / "upstream.toml"
     path.write_text(
-        source.replace('package_version = "0.1.0"', 'package_version = "9.9.9"'),
+        source.replace('package_version = "0.1.1"', 'package_version = "9.9.9"'),
         encoding="utf-8",
     )
 

@@ -1,4 +1,4 @@
-"""Validated adapter for historical-asset-risk-engine v0.1.0 artifacts."""
+"""Validated adapter for historical-asset-risk-engine v0.1.1 artifacts."""
 
 from __future__ import annotations
 
@@ -390,7 +390,7 @@ def load_upstream_run(
     expected: UpstreamConfig,
     coverage: UpstreamCoverageRequirements,
 ) -> UpstreamRun:
-    """Validate and load one complete upstream v0.1.0 run without network access."""
+    """Validate and load one complete upstream v0.1.1 run without network access."""
     run_dir = Path(input_run_dir)
     missing = [name for name in _REQUIRED_FILES if not (run_dir / name).is_file()]
     if missing:

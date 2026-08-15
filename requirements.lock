@@ -13,7 +13,7 @@ curl_cffi==0.15.0
 cycler==0.12.1
 fonttools==4.63.0
 frozendict==2.4.7
-historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@f8a1b91b3f3e1e74040c232d8841397d0f032508
+historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@9dee32b3e8af1c675863a2cd3c033ab6ce538c78
 idna==3.18
 iniconfig==2.3.0
 kiwisolver==1.5.0

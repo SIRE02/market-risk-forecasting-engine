@@ -51,10 +51,10 @@ def _load_run(path: Path, config: ForecastConfig) -> UpstreamRun:
     return load_upstream_run(path, config.upstream, coverage_requirements(config))
 
 
-def test_accepted_v010_run_loads(copied_run: Path, config: ForecastConfig) -> None:
+def test_accepted_v011_run_loads(copied_run: Path, config: ForecastConfig) -> None:
     run = _load_run(copied_run, config)
 
-    assert run.installed_package_version == "0.1.0"
+    assert run.installed_package_version == "0.1.1"
     assert run.instrument_order == ("SPY", "IEF", "GLD")
     assert len(run.returns) == 4957
     assert set(run.checksums) == {

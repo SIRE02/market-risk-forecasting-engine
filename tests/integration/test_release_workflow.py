@@ -135,6 +135,8 @@ def test_transactional_run_report_and_reproduce_workflow(
         require_complete=True,
     )
     assert complete["state"] == "complete"
+    assert complete["report_source_identity"]["source_tree_sha256"]
+    assert complete["report_dependency_versions"]["python"]
     assert all(
         (result.output_dir / name).is_file()
         for name in REQUIRED_COMPLETE_ARTIFACT_NAMES
@@ -148,8 +150,16 @@ def test_transactional_run_report_and_reproduce_workflow(
     assert "## Forecasts through time" in report_text
     assert "## 95% VaR through time" in report_text
     assert "## Rolling model advantage" in report_text
+    assert "## Final-test results by series" in report_text
+    assert "## VaR calibration by series" in report_text
+    assert "## Run identity and data lineage" in report_text
+    assert "### 99% VaR coverage" in report_text
+    assert "balanced panel" in report_text
     assert "Values below zero mean the candidate performed better" in report_text
     assert "historical pseudo-out-of-sample evidence" in report_text
+    assert "Kupiec" in report_text
+    assert "Upstream `simple_returns.csv` SHA-256" in report_text
+    assert "Numerical source commit" in report_text
     assert "regulatory" in report_text
 
     assert main(["run", "--config", str(config_path)]) == 0

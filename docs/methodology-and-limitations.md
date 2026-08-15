@@ -69,6 +69,14 @@ squared error, and absolute error. Lower-tail quantiles use pinball loss. VaR
 coverage includes exception counts, Kupiec unconditional coverage,
 Christoffersen independence, and combined conditional coverage.
 
+Loss scores and calibration answer different questions. Lower pinball loss
+means a quantile forecast performed better under that scoring rule; it does
+not guarantee that exceptions occurred at exactly the nominal rate. Likewise,
+failure to reject a coverage test is evidence consistent with calibration at
+the chosen significance level, not proof of perfect calibration. Coverage
+results must also be read alongside exception independence and forecast
+availability.
+
 An exception occurs only when realized loss is strictly greater than reported
 VaR. Undefined independence cases are labelled `insufficient_events` rather
 than receiving invented statistics.
@@ -84,15 +92,29 @@ Every run records the effective configuration, dependency versions, source
 identity, input and output checksums, dataset lineage, forecast windows, fit
 diagnostics, forecasts, realizations, evaluation tables, and report artifacts.
 Reports are generated only from the saved and checksummed numerical outputs.
+The human-readable report surfaces the acquisition timestamp, observed source
+coverage, upstream return checksum, forecasting commit, source-tree state, and
+source-tree fingerprint from those manifests.
 
-The generated report includes three historical views before its aggregate
-tables: forecast volatility with realized-return context, realized loss with
-95% VaR forecasts and strict exceptions, and rolling candidate-minus-benchmark
-QLIKE and pinball differences. A negative rolling difference means the
-candidate had the lower average loss over that window. The volatility view
-uses absolute one-session returns as noisy points and a 21-session rolling
-root-mean-square return only as smoother context; neither is an observation of
-the latent one-session variance forecast target.
+The generated report includes forecast volatility with realized-return
+context, realized loss with 95% VaR forecasts and strict exceptions, rolling
+candidate-minus-benchmark QLIKE and pinball differences, per-series bootstrap
+effects, and 95%/99% VaR calibration. Development, validation, and final-test
+periods are shaded on every dated view, whose horizontal axis ends at the last
+observed target date.
+
+The rolling comparison uses a balanced panel. A target date contributes only
+when every configured series has a valid candidate forecast, benchmark
+forecast, and realization; the configured window is then applied on the
+canonical eligible-date grid. This prevents changes in the set of available
+assets from masquerading as changes in model performance. A negative rolling
+difference means the candidate had the lower average loss over that window.
+
+The volatility view uses absolute one-session returns as noisy points and a
+21-session rolling root-mean-square return only as smoother context; neither is
+an observation of the latent one-session variance forecast target. Aggregate
+pinball charts use basis points for legibility while report tables retain the
+unscaled loss units.
 
 ## Limitations
 
@@ -105,3 +127,18 @@ regulatory capital estimates, trading advice, or guarantees of future
 performance. The engine does not model Expected Shortfall, expected returns,
 multivariate or asymmetric volatility, intraday data, machine learning, or
 portfolio optimization.
+
+## References
+
+- Bollerslev, T. (1986). *Generalized autoregressive conditional
+  heteroskedasticity*. Journal of Econometrics, 31(3), 307–327.
+- Christoffersen, P. F. (1998). *Evaluating interval forecasts*.
+  International Economic Review, 39(4), 841–862.
+- Engle, R. F. (1982). *Autoregressive conditional heteroscedasticity with
+  estimates of the variance of United Kingdom inflation*. Econometrica, 50(4),
+  987–1007.
+- J.P. Morgan/Reuters (1996). *RiskMetrics Technical Document*, fourth edition.
+- Kupiec, P. H. (1995). *Techniques for verifying the accuracy of risk
+  measurement models*. The Journal of Derivatives, 3(2), 73–84.
+- Patton, A. J. (2011). *Volatility forecast comparison using imperfect
+  volatility proxies*. Journal of Econometrics, 160(1), 246–256.

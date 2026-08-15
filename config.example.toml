@@ -6,7 +6,7 @@ random_seed = 42
 
 [upstream]
 project = "historical-asset-risk-engine"
-package_version = "0.1.0"
+package_version = "0.1.1"
 simple_returns_schema_id = "historical-asset-risk/simple-returns"
 simple_returns_schema_version = "1.experimental"
 simple_returns_units = "decimal_return_per_observation"

@@ -341,7 +341,7 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
     )
     expected_upstream_identity = (
         "historical-asset-risk-engine",
-        "0.1.0",
+        "0.1.1",
         "historical-asset-risk/simple-returns",
         "1.experimental",
         "decimal_return_per_observation",

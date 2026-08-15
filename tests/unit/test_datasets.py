@@ -105,7 +105,7 @@ def test_dataset_manifest_preserves_lineage(project_root: Path) -> None:
     manifest = dataset.manifest
 
     assert manifest["dataset"]["observation_count"] == len(dataset.returns)
-    assert manifest["upstream"]["installed_package_version"] == "0.1.0"
+    assert manifest["upstream"]["installed_package_version"] == "0.1.1"
     assert manifest["upstream"]["instrument_order"] == ["SPY", "IEF", "GLD"]
     assert manifest["upstream"]["consumed_file_checksums"] == dict(upstream.checksums)
     assert manifest["upstream"]["quality_adjustment_counts"] == {

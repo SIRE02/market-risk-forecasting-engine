@@ -80,6 +80,8 @@ REPORT_ARTIFACT_NAMES = (
     "figures/variance_qlike_comparison.png",
     "figures/var_pinball_comparison.png",
     "figures/forecast_availability.png",
+    "figures/var_calibration.png",
+    "figures/series_comparisons.png",
 )
 REQUIRED_COMPLETE_ARTIFACT_NAMES = (
     *NUMERICAL_ARTIFACT_NAMES,
@@ -359,6 +361,12 @@ def finalize_run_manifest(
         "generated_artifacts": _generated_artifact_declarations(directory),
         "success": state in {"numerical_complete", "complete"},
     }
+    if state == "complete":
+        refreshed["report_source_identity"] = source_identity()
+        refreshed["report_dependency_versions"] = dependency_versions()
+    else:
+        refreshed.pop("report_source_identity", None)
+        refreshed.pop("report_dependency_versions", None)
     _write_json(directory / RUN_MANIFEST_NAME, refreshed)
     return refreshed
 

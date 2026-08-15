@@ -1,7 +1,7 @@
 # Data
 
 `data/fixtures/upstream_run/` contains deterministic synthetic data committed
-only for offline tests. It follows the public upstream v0.1.0 artifact contract
+only for offline tests. It follows the public upstream v0.1.1 artifact contract
 and is not provider market data.
 
 Real provider artifacts belong under `data/upstream/`, which Git ignores.

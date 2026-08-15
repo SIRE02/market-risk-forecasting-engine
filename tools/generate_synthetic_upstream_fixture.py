@@ -7,7 +7,7 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-UPSTREAM_COMMIT = "f8a1b91b3f3e1e74040c232d8841397d0f032508"
+UPSTREAM_COMMIT = "9dee32b3e8af1c675863a2cd3c033ab6ce538c78"
 INSTRUMENTS = ("SPY", "IEF", "GLD")
 
 
@@ -102,7 +102,7 @@ def main() -> None:
     }
     manifest = {
         "project": "historical-asset-risk-engine",
-        "project_version": "0.1.0",
+        "project_version": "0.1.1",
         "git_commit": UPSTREAM_COMMIT,
         "execution_timestamp": "2026-01-01T00:00:00+00:00",
         "fixture": {
@@ -139,7 +139,7 @@ def main() -> None:
         "generated_artifacts": sorted(artifact_schemas),
         "artifact_schemas": artifact_schemas,
         "consumer_compatibility": {
-            "package_version": "0.1.0",
+            "package_version": "0.1.1",
             "artifact_schemas": artifact_schemas,
             "fixture_identity": "market-risk-forecasting-synthetic-v1",
             "contract_status": "experimental",

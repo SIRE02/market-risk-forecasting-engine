@@ -15,7 +15,7 @@ authors = [
 ]
 dependencies = [
     "arch>=7.2,<8",
-    "historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@f8a1b91b3f3e1e74040c232d8841397d0f032508",
+    "historical-asset-risk-engine @ git+https://github.com/SIRE02/historical-asset-risk-engine.git@9dee32b3e8af1c675863a2cd3c033ab6ce538c78",
     "matplotlib>=3.9,<4",
     "numpy>=2.0,<3",
     "pandas>=2.2,<3",

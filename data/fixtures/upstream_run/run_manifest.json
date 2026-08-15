@@ -1,7 +1,7 @@
 {
   "project": "historical-asset-risk-engine",
-  "project_version": "0.1.0",
-  "git_commit": "f8a1b91b3f3e1e74040c232d8841397d0f032508",
+  "project_version": "0.1.1",
+  "git_commit": "9dee32b3e8af1c675863a2cd3c033ab6ce538c78",
   "execution_timestamp": "2026-01-01T00:00:00+00:00",
   "fixture": {
     "synthetic": true,
@@ -63,7 +63,7 @@
     }
   },
   "consumer_compatibility": {
-    "package_version": "0.1.0",
+    "package_version": "0.1.1",
     "artifact_schemas": {
       "data_quality_report.json": {
         "schema_id": "historical-asset-risk/data-quality-report",

@@ -22,7 +22,7 @@ def test_synthetic_fixture_satisfies_public_upstream_loader(
 
     assert manifest["fixture"]["synthetic"] is True
     assert manifest["project"] == "historical-asset-risk-engine"
-    assert manifest["project_version"] == "0.1.0"
+    assert manifest["project_version"] == "0.1.1"
     assert manifest["data_source"]["instruments"] == ["SPY", "IEF", "GLD"]
     assert list(frame.columns) == ["SPY", "IEF", "GLD"]
     assert quality["common_date_count_after_alignment"] == 4958

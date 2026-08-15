@@ -1,15 +1,35 @@
+# Python caches and test output
 __pycache__/
 *.py[cod]
-*.egg-info/
 .coverage
+htmlcov/
 .mypy_cache/
 .pytest_cache/
 .pytest_tmp/
 .ruff_cache/
+
+# Local environments and secrets
 .venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Editors and operating systems
 .idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Packaging output
 build/
 dist/
-outputs/
-tmp/
-data/upstream/
+*.egg-info/
+
+# Generated research artifacts and private/provider data
+/outputs/
+/tmp/
+/data/upstream/
+
+# Notebook checkpoints (not notebooks themselves)
+.ipynb_checkpoints/
