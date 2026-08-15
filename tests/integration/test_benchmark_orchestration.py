@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -59,10 +60,12 @@ def test_synthetic_benchmark_experiment_reconciles(
         "validation",
         "test",
     }
-    assert (
-        artifacts.realizations["squared_return"]
-        == artifacts.realizations["simple_return"].pow(2)
-    ).all()
+    np.testing.assert_allclose(
+        artifacts.realizations["squared_return"],
+        artifacts.realizations["simple_return"].pow(2),
+        rtol=1e-15,
+        atol=0.0,
+    )
     assert (
         artifacts.realizations["loss"] == -artifacts.realizations["simple_return"]
     ).all()
