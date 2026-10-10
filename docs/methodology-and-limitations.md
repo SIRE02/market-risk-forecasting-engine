@@ -30,7 +30,10 @@ synthetic weekday fixture is not an exchange-session dataset.
 A forecast made at date `t` may use observations through `t`. Its realization
 is the return at the next observed session, `t+1`. Period classification uses
 the target date. Appending later observations cannot alter previously created
-windows, identifiers, forecasts, or realizations.
+windows, forecast values, or realizations. Fit and forecast identifiers do
+change, because each fit identifier includes the SHA-256 checksum of the whole
+`simple_returns.csv` artifact and each forecast identifier includes its fit
+identifier; a longer input file is a different input artifact.
 
 Development, validation, and test results remain separate. Pairwise model
 comparisons use only dates where both models have a valid forecast for the
@@ -156,7 +159,12 @@ The rolling comparison uses a balanced panel. A target date contributes only
 when every configured series has a valid candidate forecast, benchmark
 forecast, and realization; the configured window is then applied on the
 canonical eligible-date grid. This prevents changes in the set of available
-assets from masquerading as changes in model performance. A negative rolling
+assets from masquerading as changes in model performance. The window restarts
+at each period boundary, so no period's curve averages in losses from the
+period before it, and a curve begins only after a full window of sessions
+within one period. A period shorter than the window has no curve: with the
+supplied 252-session window, the dot-com development (124 sessions) and
+validation (128 sessions) periods show no rolling line. A negative rolling
 difference means the candidate had the lower average loss over that window.
 
 The volatility view uses absolute one-session returns as noisy points and a

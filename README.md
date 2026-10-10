@@ -64,8 +64,8 @@ project's source code:
 2. [`configs/upstream/dotcom_technology.toml`](configs/upstream/dotcom_technology.toml)
    is read by `historical-asset-risk`. It declares the provider, tickers, date
    range, data-quality controls, and output directory.
-3. The historical run writes the three handoff files below. Additional charts,
-   statistics, and adjusted-price files remain owned by the historical project.
+3. The historical run writes the handoff files below. Additional charts and
+   statistics remain owned by the historical project.
 4. [`configs/dotcom_technology.toml`](configs/dotcom_technology.toml) declares
    the exact package, schema, units, ordered instruments, input directory,
    experiment periods, and forecasting controls expected by this project.
@@ -79,6 +79,7 @@ project's source code:
 | `simple_returns.csv` | Supplies the canonical ordered decimal-return series |
 | `data_quality_report.json` | Proves the upstream alignment and quality gates succeeded |
 | `run_manifest.json` | Supplies project, version, schema, lineage, and checksum declarations |
+| `adjusted_prices.csv` | Verifies the returns: checked against the manifest's `price_content_hash`, then used to recompute and compare every return. Required whenever the manifest declares the file or its hash; only returns-only runs such as the synthetic fixture omit it |
 
 This separation makes a forecasting run traceable to the exact upstream data
 artifact without coupling the forecasting models to Yahoo Finance or to the
