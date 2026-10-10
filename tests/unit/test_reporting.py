@@ -72,7 +72,9 @@ def test_rolling_loss_differences_preserve_direction_and_initial_gap() -> None:
             )
         ]
     )
-    realizations = pd.DataFrame([{**key, "simple_return": -0.10} for key in keys])
+    realizations = pd.DataFrame(
+        [{**key, "simple_return": -0.10, "period": "test"} for key in keys]
+    )
 
     result = _rolling_loss_differences(forecasts, realizations, window=2)
 
@@ -102,7 +104,7 @@ def test_rolling_loss_differences_require_a_balanced_series_panel() -> None:
                 "forecast_origin": target_date - pd.offsets.BDay(1),
                 "target_date": target_date,
             }
-            realizations.append({**key, "simple_return": -0.10})
+            realizations.append({**key, "simple_return": -0.10, "period": "test"})
             for model_id, variance, quantile in (
                 ("historical_variance", 0.04, np.nan),
                 ("historical_simulation", np.nan, -0.20),
@@ -245,6 +247,7 @@ def _rolling_inputs(
     dates: pd.DatetimeIndex,
     series_ids: tuple[str, ...],
     benchmark_failed: set[tuple[str, pd.Timestamp]],
+    periods: dict[pd.Timestamp, str] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     forecasts: list[dict[str, object]] = []
     realizations: list[dict[str, object]] = []
@@ -255,7 +258,13 @@ def _rolling_inputs(
                 "forecast_origin": target_date - pd.offsets.BDay(1),
                 "target_date": target_date,
             }
-            realizations.append({**key, "simple_return": -0.10})
+            realizations.append(
+                {
+                    **key,
+                    "simple_return": -0.10,
+                    "period": (periods or {}).get(target_date, "test"),
+                }
+            )
             for model_id, variance, quantile in (
                 ("historical_variance", 0.04, np.nan),
                 ("historical_simulation", np.nan, -0.20),
@@ -305,3 +314,19 @@ def test_rolling_loss_differences_keep_series_without_valid_benchmarks() -> None
 
     assert len(ewma_qlike) == len(dates)
     assert ewma_qlike["rolling_difference"].isna().all()
+
+
+def test_rolling_loss_differences_restart_at_period_boundaries() -> None:
+    dates = pd.date_range("2025-01-02", periods=6, freq="B")
+    periods = {
+        target_date: "validation" if position < 3 else "test"
+        for position, target_date in enumerate(dates)
+    }
+
+    ewma_qlike = _ewma_rolling_qlike(
+        *_rolling_inputs(dates, ("A", "B"), set(), periods)
+    )
+
+    # Window 2: the first test date must not average in the last validation date.
+    assert ewma_qlike["rolling_difference"].iloc[[0, 3]].isna().all()
+    assert ewma_qlike["rolling_difference"].iloc[[1, 2, 4, 5]].lt(0.0).all()

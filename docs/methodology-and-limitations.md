@@ -76,7 +76,12 @@ variance. Public outputs are converted back to decimal-return units.
 Variance forecasts are scored against squared one-session returns using QLIKE,
 squared error, and absolute error. Lower-tail quantiles use pinball loss. VaR
 coverage includes exception counts, Kupiec unconditional coverage,
-Christoffersen independence, and combined conditional coverage.
+Christoffersen independence, and combined conditional coverage. Kupiec uses
+every available forecast. Independence and conditional coverage use only
+transitions between consecutive available forecasts, and conditional coverage
+is a single likelihood ratio on those transitions rather than the sum of the
+Kupiec and independence statistics, so both parts share one sample when
+missing forecasts break the chain.
 
 Loss scores and calibration answer different questions. Lower pinball loss
 means a quantile forecast performed better under that scoring rule; it does

@@ -82,8 +82,29 @@ def test_known_coverage_statistics_and_transition_counts() -> None:
     assert statistics["christoffersen_independence_lr"] == pytest.approx(
         1.1365105517087883
     )
-    assert statistics["conditional_coverage_lr"] == pytest.approx(3.2295031267669803)
+    # Joint test on the nine transitions: 4 exceptions against p = 0.20 versus
+    # the Markov chain with P(0->1) = 3/5 and P(1->1) = 1/4.
+    assert statistics["conditional_coverage_lr"] == pytest.approx(3.878140985571868)
     assert statistics["christoffersen_status"] == "ok"
+
+
+def test_conditional_coverage_uses_only_linked_transitions() -> None:
+    exceptions = np.array(
+        [False, False, True, True, False, True, False, False, True, False]
+    )
+    adjacent = np.ones(exceptions.size - 1, dtype=bool)
+    adjacent[4] = False  # a missing forecast breaks the 0 -> 1 link at 4 -> 5
+
+    statistics = coverage_statistics(
+        exceptions,
+        expected_probability=0.20,
+        adjacent=adjacent,
+    )
+
+    assert statistics["excluded_gap_transition_count"] == 1
+    assert statistics["kupiec_lr"] == pytest.approx(2.092992575058192)
+    # Eight linked transitions with 3 exceptions, P(0->1) = 2/4, P(1->1) = 1/4.
+    assert statistics["conditional_coverage_lr"] == pytest.approx(1.8442043863166706)
 
 
 def test_undefined_christoffersen_test_is_labelled() -> None:

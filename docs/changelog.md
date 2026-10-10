@@ -20,8 +20,11 @@ This file records user-visible changes for each published package version.
 - Keep failed benchmark dates and series without valid benchmarks in the
   rolling model-advantage panel so rolling windows never bridge missing
   sessions.
-- Reconcile upstream returns with HARE's hash-verified adjusted prices when
-  `adjusted_prices.csv` is present.
+- Reconcile upstream returns with HARE's hash-verified adjusted prices, and
+  require `adjusted_prices.csv` whenever the manifest declares it or its hash.
+- Compute Christoffersen conditional coverage as one likelihood ratio on the
+  linked transitions instead of adding Kupiec's all-forecast statistic.
+- Restart the rolling model-advantage window at each period boundary.
 - Validate the declared XNYS session calendar for the real-data study and
   exercise HARE's actual offline output contract in integration tests.
 - Pin `historical-asset-risk-engine` to the v0.2.1 release commit and require

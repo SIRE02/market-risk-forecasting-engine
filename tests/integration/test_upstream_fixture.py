@@ -109,6 +109,7 @@ def test_real_hare_returns_only_run_and_declared_session_calendar(
         ("returns", UpstreamQualityGateFailedError, "does not reconcile"),
         ("prices", UpstreamQualityGateFailedError, "adjusted_prices.csv failed"),
         ("hash", UpstreamManifestInvalidError, "price_content_hash"),
+        ("missing", UpstreamManifestInvalidError, "file is missing"),
     ],
 )
 def test_returns_must_reconcile_with_hash_verified_prices(
@@ -153,10 +154,13 @@ def test_returns_must_reconcile_with_hash_verified_prices(
         del manifest["data_source"]["price_content_hash"]
         manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     else:
-        name = "simple_returns.csv" if tampered == "returns" else "adjusted_prices.csv"
+        name = "adjusted_prices.csv" if tampered == "prices" else "simple_returns.csv"
         frame = pd.read_csv(run_dir / name, float_precision="round_trip")
-        frame.loc[2, "SPY"] = 0.75 if tampered == "returns" else 175.0
+        frame.loc[2, "SPY"] = 175.0 if tampered == "prices" else 0.75
         frame.to_csv(run_dir / name, index=False)
+        if tampered == "missing":
+            # Deleting the evidence must not switch the check off.
+            (run_dir / "adjusted_prices.csv").unlink()
 
     with pytest.raises(error, match=match):
         load_upstream_run(run_dir, expected, coverage)

@@ -63,10 +63,12 @@ checksums, instrument order, dates, and values against this declaration.
 nor a portfolio proxy may use that identifier.
 
 HARE records a content hash for `adjusted_prices.csv` but not for
-`simple_returns.csv`. When the run contains `adjusted_prices.csv`, the adapter
-requires the manifest's `price_content_hash`, verifies the prices against it,
-and rejects returns that differ from returns recomputed from those prices.
-Returns-only runs, such as the synthetic fixture, cannot be checked this way.
+`simple_returns.csv`. When the run contains `adjusted_prices.csv`, or its
+manifest declares that file or its `price_content_hash`, the adapter requires
+both the file and the hash, verifies the prices against it, and rejects returns
+that differ from returns recomputed from those prices. Only a run whose
+manifest declares neither, such as the synthetic fixture, is accepted as
+returns-only, and its returns cannot be checked this way.
 
 The installed HARE version and the upstream manifest's `project_version` must
 both be `0.2.1`. Regenerate real upstream runs with that release when upgrading;

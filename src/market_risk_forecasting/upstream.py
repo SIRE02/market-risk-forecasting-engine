@@ -423,16 +423,30 @@ def _reconcile_with_prices(
 
     HARE records a content hash for ``adjusted_prices.csv`` but none for
     ``simple_returns.csv``, so returns are only producer-evidenced through the
-    prices. Returns-only runs, such as the synthetic fixture, have no prices to
-    reconcile against.
+    prices. Only a run whose manifest declares neither the price file nor its
+    hash, such as the synthetic fixture, is accepted as returns-only.
     """
     prices_path = run_dir / "adjusted_prices.csv"
-    if not prices_path.is_file():
-        return
     data_source = manifest.get("data_source")
-    if not isinstance(data_source, Mapping) or not isinstance(
-        data_source.get("price_content_hash"), str
-    ):
+    declared_hash = (
+        data_source.get("price_content_hash")
+        if isinstance(data_source, Mapping)
+        else None
+    )
+    generated = manifest.get("generated_artifacts")
+    declared_file = (
+        isinstance(generated, Sequence)
+        and not isinstance(generated, str)
+        and "adjusted_prices.csv" in generated
+    )
+    if not prices_path.is_file():
+        if declared_hash is None and not declared_file:
+            return
+        raise UpstreamManifestInvalidError(
+            "The upstream manifest declares adjusted_prices.csv or its content "
+            "hash, but the file is missing."
+        )
+    if not isinstance(declared_hash, str):
         raise UpstreamManifestInvalidError(
             "The upstream manifest must record data_source.price_content_hash "
             "when adjusted_prices.csv is present."

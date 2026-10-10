@@ -525,7 +525,9 @@ def _render_report(
         "minus its historical benchmark loss, calculated on a balanced panel: "
         "every configured series must have valid candidate and benchmark "
         "forecasts on a target date. A missing series makes that date unavailable "
-        "to the rolling window. "
+        "to the rolling window. The window restarts at each period boundary, so "
+        "a line appears only after that many sessions within one period, and a "
+        "period shorter than the window has no line. "
         "Values below zero mean the candidate performed better over that window; "
         "values above zero mean the benchmark performed better.",
         "",
@@ -1285,6 +1287,11 @@ def _rolling_loss_differences(
             "Rolling comparison window must be at least one session."
         )
     realization_values = realizations.loc[:, [*_FORECAST_KEYS, "simple_return"]].copy()
+    date_periods = (
+        realizations.drop_duplicates("target_date")
+        .assign(target_date=lambda frame: pd.to_datetime(frame["target_date"]))
+        .set_index("target_date")["period"]
+    )
     rows: list[pd.DataFrame] = []
     specifications = (
         (
@@ -1371,13 +1378,13 @@ def _rolling_loss_differences(
                 .rename_axis("target_date")
                 .reset_index()
             )
-            daily["rolling_difference"] = (
-                daily["difference"]
-                .rolling(
-                    window,
-                    min_periods=window,
-                )
-                .mean()
+            # Restart the window at each period boundary so no period's line
+            # carries losses from the period before it.
+            daily["period"] = daily["target_date"].map(date_periods)
+            daily["rolling_difference"] = daily.groupby("period", sort=False)[
+                "difference"
+            ].transform(
+                lambda values: values.rolling(window, min_periods=window).mean()
             )
             daily["metric"] = metric
             daily["model_id"] = model_id

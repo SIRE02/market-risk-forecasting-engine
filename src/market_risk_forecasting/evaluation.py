@@ -294,7 +294,18 @@ def coverage_statistics(
         0.0,
         -2.0 * (independent_log_likelihood - markov_log_likelihood),
     )
-    conditional_lr = kupiec_lr + independence_lr
+    # Test nominal coverage and independence jointly on the same linked
+    # transitions. Adding Kupiec's all-forecast statistic to the transition-only
+    # independence statistic would mix samples once gaps remove transitions.
+    nominal_log_likelihood = _bernoulli_log_likelihood(
+        successes=n01 + n11,
+        trials=n00 + n01 + n10 + n11,
+        probability=expected_probability,
+    )
+    conditional_lr = max(
+        0.0,
+        -2.0 * (nominal_log_likelihood - markov_log_likelihood),
+    )
     result.update(
         {
             "christoffersen_independence_lr": independence_lr,
