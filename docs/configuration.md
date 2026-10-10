@@ -18,8 +18,13 @@ historical-asset-risk --config configs/upstream/dotcom_technology.toml
 market-risk-forecast reproduce --config configs/dotcom_technology.toml
 ```
 
-The acquisition `output_dir` must equal the forecasting `input_run_dir`. The
-instrument names and their order must also match.
+The acquisition `output_dir` and forecasting `input_run_dir` must resolve to
+the same directory. HARE v0.2.1 resolves paths written in its config relative
+to that file's folder; forecasting paths are relative to the working directory.
+The acquisition config at `configs/upstream/dotcom_technology.toml` therefore
+uses `../../data/upstream/spy-msft-csco-aapl-1993-2026`, while the forecasting
+config uses `data/upstream/spy-msft-csco-aapl-1993-2026`. The instrument names
+and their order must also match.
 
 ## Experiment
 
@@ -45,7 +50,7 @@ universe expected from `historical-asset-risk-engine`.
 ```toml
 [upstream]
 project = "historical-asset-risk-engine"
-package_version = "0.1.1"
+package_version = "0.2.1"
 simple_returns_schema_id = "historical-asset-risk/simple-returns"
 simple_returns_schema_version = "1.experimental"
 simple_returns_units = "decimal_return_per_observation"
@@ -54,6 +59,17 @@ instruments = ["SPY", "IEF", "GLD"]
 
 The engine checks the installed dependency, manifest, schema, units, file
 checksums, instrument order, dates, and values against this declaration.
+
+The installed HARE version and the upstream manifest's `project_version` must
+both be `0.2.1`. Regenerate real upstream runs with that release when upgrading;
+retain their original manifests as evidence of the versions that produced them.
+
+For exchange-session input, optionally declare `market_calendar_id = "XNYS"`
+in `[upstream]`. HARE currently supports this calendar through 2035. The
+adapter rejects non-session dates and missing sessions, including the first
+return interval. The dot-com configuration enables this check. Omit the key
+for the synthetic weekday fixture, which deliberately includes exchange
+holidays and is not market data.
 
 ## Experiment periods
 

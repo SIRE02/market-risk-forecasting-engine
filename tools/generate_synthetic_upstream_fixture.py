@@ -7,7 +7,8 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-UPSTREAM_COMMIT = "9dee32b3e8af1c675863a2cd3c033ab6ce538c78"
+UPSTREAM_VERSION = "0.2.1"
+UPSTREAM_COMMIT = "189a86dce533d8ec6b3d13b8a8c930c3320a95ed"
 INSTRUMENTS = ("SPY", "IEF", "GLD")
 
 
@@ -102,8 +103,9 @@ def main() -> None:
     }
     manifest = {
         "project": "historical-asset-risk-engine",
-        "project_version": "0.1.1",
+        "project_version": UPSTREAM_VERSION,
         "git_commit": UPSTREAM_COMMIT,
+        "git_worktree_dirty": None,
         "execution_timestamp": "2026-01-01T00:00:00+00:00",
         "fixture": {
             "synthetic": True,
@@ -120,7 +122,9 @@ def main() -> None:
             "missing_data": {
                 "alignment": "complete_case_adjusted_prices",
                 "forward_fill": False,
-                "gap_spanning_return_policy": "fail",
+                "gap_spanning_return_policy": (
+                    "fail_when_retained_complete_case_dates_are_nonconsecutive_within_the_provider_observation_union"
+                ),
             }
         },
         "data_source": {
@@ -139,7 +143,7 @@ def main() -> None:
         "generated_artifacts": sorted(artifact_schemas),
         "artifact_schemas": artifact_schemas,
         "consumer_compatibility": {
-            "package_version": "0.1.1",
+            "package_version": UPSTREAM_VERSION,
             "artifact_schemas": artifact_schemas,
             "fixture_identity": "market-risk-forecasting-synthetic-v1",
             "contract_status": "experimental",

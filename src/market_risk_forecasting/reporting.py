@@ -99,6 +99,9 @@ class _ReportLineage:
     upstream_actual_start_date: str
     upstream_actual_end_date: str
     simple_returns_sha256: str
+    forecast_source_directory: str | None = None
+    forecast_parent_directory: str | None = None
+    forecast_source_tree_sha256: str | None = None
 
 
 def generate_report(experiment_dir: Path) -> ReportResult:
@@ -362,6 +365,9 @@ def _load_report_lineage(directory: Path) -> _ReportLineage:
         if dirty is False
         else "unavailable"
     )
+    provenance = run_manifest.get("forecast_provenance")
+    forecast_source = provenance if isinstance(provenance, dict) else {}
+    forecast_identity = forecast_source.get("source_identity", {})
     return _ReportLineage(
         experiment_id=_manifest_text(run_manifest, "experiment_id"),
         execution_started_at=_manifest_text(run_manifest, "execution_started_at"),
@@ -386,6 +392,26 @@ def _load_report_lineage(directory: Path) -> _ReportLineage:
         simple_returns_sha256=_manifest_text(
             upstream_checksums,
             "simple_returns.csv",
+        ),
+        forecast_source_directory=(
+            _manifest_text(
+                forecast_source,
+                "original_source_directory"
+                if "original_source_directory" in forecast_source
+                else "source_directory",
+            )
+            if forecast_source
+            else None
+        ),
+        forecast_parent_directory=(
+            _manifest_text(forecast_source, "source_directory")
+            if forecast_source
+            else None
+        ),
+        forecast_source_tree_sha256=(
+            _manifest_text(forecast_identity, "source_tree_sha256")
+            if isinstance(forecast_identity, dict) and forecast_source
+            else None
         ),
     )
 
@@ -599,6 +625,8 @@ def _render_report(
         "Equality between realized loss and VaR is not an exception. "
         "Christoffersen results with zero required transition cells are labelled "
         "`insufficient_events`.",
+        "Independence transitions and exception clusters do not bridge missing "
+        "forecasts. Coverage and score comparisons condition on available forecasts.",
         "A model without a coverage rejection is consistent with nominal "
         "unconditional coverage at the chosen significance level; that is not "
         "proof of perfect calibration. Coverage evidence should also be read "
@@ -628,6 +656,26 @@ def _render_report(
         f"- Numerical source commit: `{lineage.numerical_git_commit}` "
         f"({lineage.numerical_source_state}).",
         f"- Numerical source-tree SHA-256: `{lineage.numerical_source_tree_sha256}`.",
+        *(
+            [
+                "- Evaluation was regenerated with the numerical source above; "
+                "forecasts were reused unchanged from "
+                f"`{lineage.forecast_source_directory}`.",
+                "- Original forecast source-tree SHA-256: "
+                f"`{lineage.forecast_source_tree_sha256}`.",
+            ]
+            if lineage.forecast_source_directory
+            else []
+        ),
+        *(
+            [
+                "- Saved forecasts were copied through the intermediate "
+                f"reevaluation `{lineage.forecast_parent_directory}`.",
+            ]
+            if lineage.forecast_parent_directory
+            and lineage.forecast_parent_directory != lineage.forecast_source_directory
+            else []
+        ),
         "- Upstream engine: historical-asset-risk-engine "
         f"{lineage.upstream_project_version}, commit "
         f"`{lineage.upstream_git_commit}`.",
@@ -657,6 +705,10 @@ def _render_report(
         f"{evaluation['bootstrap_block_length']}, "
         f"{evaluation['bootstrap_resamples']} resamples, "
         f"seed {experiment['random_seed']}, {interval_label} intervals.",
+        "- Bootstrap blocks share the same dates across assets and retain "
+        "missing paired forecasts on the target-date grid.",
+        "- Unavailable bootstrap intervals indicate insufficient distinct date "
+        "blocks, observed dates, or resamples; descriptive effects remain available.",
         "- Every reported aggregate is traceable through the saved forecasts, "
         "realizations, score tables, experiment manifest, and run manifest.",
         "",

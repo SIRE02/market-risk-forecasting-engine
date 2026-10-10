@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -8,7 +9,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from market_risk_forecasting.config import ForecastConfig, load_config
+from market_risk_forecasting.config import ForecastConfig, PeriodConfig, load_config
 from market_risk_forecasting.datasets import ResearchDataset, build_research_dataset
 from market_risk_forecasting.models import garch
 from market_risk_forecasting.models.garch import (
@@ -224,3 +225,71 @@ def test_real_arch_backend_produces_typed_results(project_root: Path) -> None:
     assert len(artifacts.fit_diagnostics) == 8
     assert set(artifacts.forecasts["status"]).issubset({"ok", "failed"})
     assert artifacts.fit_diagnostics["fit_id"].is_unique
+
+
+@pytest.mark.parametrize("short_model", ["ewma", "garch"])
+def test_shorter_candidate_windows_have_matching_realizations(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch, short_model: str
+) -> None:
+    monkeypatch.setattr(garch, "_fit_arch_model", _successful_arch_fit)
+    config, dataset, checksum = _fixture_inputs(project_root, row_count=260)
+    if short_model == "ewma":
+        config = replace(config, ewma=replace(config.ewma, initialization_window=63))
+    else:
+        config = replace(config, garch=replace(config.garch, estimation_window=63))
+    artifacts = run_available_models(
+        dataset=dataset, config=config, upstream_simple_return_checksum=checksum
+    )
+    candidates = artifacts.forecasts.loc[
+        artifacts.forecasts.model_id.eq("ewma")
+        if short_model == "ewma"
+        else artifacts.forecasts.model_id.str.startswith("garch")
+    ]
+    assert candidates.target_date.min() == dataset.returns.index[63]
+    keys = ["series_id", "forecast_origin", "target_date"]
+    matched = candidates.merge(
+        artifacts.realizations[keys], on=keys, validate="many_to_one"
+    )
+    assert len(matched) == len(candidates)
+    assert len(candidates) > 0
+
+
+def test_garch_advances_through_observations_outside_evaluation_periods(
+    project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(garch, "_fit_arch_model", _successful_arch_fit)
+    config, dataset, checksum = _fixture_inputs(project_root, row_count=1315)
+    first = dataset.returns.index[1250].date()
+    last = dataset.returns.index[-1].date()
+    periods = PeriodConfig(
+        development_start=first,
+        development_end=dataset.returns.index[1254].date(),
+        validation_start=dataset.returns.index[1280].date(),
+        validation_end=dataset.returns.index[1284].date(),
+        test_start=dataset.returns.index[1290].date(),
+        test_end=last,
+    )
+    # Keep parameters fixed to isolate the filter recursion from estimation.
+    controls = replace(config.garch, refit_every_origins=1000)
+    complete_config = replace(
+        config,
+        garch=controls,
+        periods=replace(
+            periods,
+            development_end=dataset.returns.index[1279].date(),
+            validation_end=dataset.returns.index[1289].date(),
+        ),
+    )
+    gapped_config = replace(config, garch=controls, periods=periods)
+    complete = run_garch_candidates(
+        dataset=dataset,
+        config=complete_config,
+        upstream_simple_return_checksum=checksum,
+    )
+    gapped = run_garch_candidates(
+        dataset=dataset, config=gapped_config, upstream_simple_return_checksum=checksum
+    )
+    expected = complete.forecasts.loc[
+        complete.forecasts["target_date"].isin(gapped.forecasts["target_date"])
+    ].reset_index(drop=True)
+    pd.testing.assert_frame_equal(gapped.forecasts, expected)

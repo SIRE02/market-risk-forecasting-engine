@@ -15,10 +15,13 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from market_risk_forecasting import __version__
 from market_risk_forecasting.config import ForecastConfig
 from market_risk_forecasting.datasets import (
     ResearchDataset,
+    build_research_dataset,
     persist_dataset_manifest,
 )
 from market_risk_forecasting.errors import (
@@ -32,6 +35,8 @@ from market_risk_forecasting.evaluation import (
     PERIOD_BREAKDOWN_COLUMNS,
     QUANTILE_SCORE_COLUMNS,
     VARIANCE_SCORE_COLUMNS,
+    evaluate_forecasts,
+    persist_evaluation_artifacts,
 )
 from market_risk_forecasting.models.ewma import EWMA_MODEL_ID
 from market_risk_forecasting.models.garch import (
@@ -50,11 +55,26 @@ from market_risk_forecasting.orchestration import (
     persist_evaluated_model_artifacts,
     run_available_models_with_evaluation,
 )
-from market_risk_forecasting.upstream import UpstreamRun
+from market_risk_forecasting.upstream import (
+    UpstreamRun,
+    coverage_requirements,
+    load_upstream_run,
+)
 
 PROJECT_NAME = "market-risk-forecasting-engine"
 RUN_MANIFEST_NAME = "run_manifest.json"
 EXPERIMENT_MANIFEST_NAME = "experiment_manifest.json"
+_PRESERVED_FORECAST_ARTIFACTS = (
+    "experiment_windows.csv",
+    "realizations.parquet",
+    "forecasts.parquet",
+    "fit_diagnostics.parquet",
+)
+# Recorded in run manifests so reevaluation can tell forecasts produced after
+# the GARCH period-gap fix from those of earlier code.
+FORECAST_POLICIES = {
+    "garch_period_gaps": "advance_state_through_intermediate_observations",
+}
 
 NUMERICAL_ARTIFACT_NAMES = (
     "upstream_run_manifest.json",
@@ -255,6 +275,120 @@ def execute_experiment(
         raise
 
 
+def reevaluate_experiment(
+    *, source_dir: Path, config: ForecastConfig
+) -> ExperimentRunResult:
+    """Reevaluate verified forecasts in a new directory with explicit provenance."""
+    source = Path(source_dir).resolve()
+    output = config.experiment.output_dir.resolve()
+    if output == source or source in output.parents or output in source.parents:
+        raise OutputCollisionError("Reevaluation requires a separate output directory.")
+    prior_run = verify_experiment_directory(source, require_complete=False)
+    prior_experiment = _load_json(source / EXPERIMENT_MANIFEST_NAME)
+    original = prior_experiment.get("forecast_provenance")
+    if original is not None:
+        _verify_forecast_provenance(source, original, prior_run)
+    prior_config = dict(prior_experiment["effective_configuration"])
+    requested = config.to_dict()
+    # Only output location and the added input-calendar guard may differ; a
+    # changed fitting/evaluation control requires its own numerical experiment.
+    comparable_prior = json.loads(json.dumps(prior_config))
+    comparable_requested = json.loads(json.dumps(requested))
+    for values in (comparable_prior, comparable_requested):
+        values["experiment"].pop("output_dir", None)
+        values["upstream"].pop("market_calendar_id", None)
+    if comparable_prior != comparable_requested:
+        raise OutputCollisionError("Saved forecasts use a different configuration.")
+    upstream = load_upstream_run(
+        config.experiment.input_run_dir, config.upstream, coverage_requirements(config)
+    )
+    if dict(upstream.checksums) != prior_run["upstream"]["checksums"]:
+        raise ArtifactReconciliationFailedError("Upstream input changed since fitting.")
+    if prior_run.get("forecast_policies") != FORECAST_POLICIES:
+        _require_gap_safe_garch_forecasts(source / "experiment_windows.csv")
+    forecasts = pd.read_parquet(source / "forecasts.parquet")
+    realizations = pd.read_parquet(source / "realizations.parquet")
+    evaluation = evaluate_forecasts(
+        forecasts=forecasts, realizations=realizations, config=config
+    )
+    dataset = build_research_dataset(upstream, config.portfolio_proxy)
+    preserved = _PRESERVED_FORECAST_ARTIFACTS
+    producer = original if isinstance(original, Mapping) else {}
+    provenance = {
+        "source_directory": str(source),
+        "original_source_directory": producer.get(
+            "original_source_directory", producer.get("source_directory", str(source))
+        ),
+        "source_identity": producer.get(
+            "source_identity", prior_experiment["source_identity"]
+        ),
+        "dependency_versions": producer.get(
+            "dependency_versions", prior_run["dependency_versions"]
+        ),
+        "effective_configuration": producer.get(
+            "effective_configuration", prior_config
+        ),
+        "parent_evaluation": {
+            "source_directory": str(source),
+            "source_identity": prior_experiment["source_identity"],
+            "dependency_versions": prior_run["dependency_versions"],
+        },
+        "preserved_artifacts": {
+            name: artifact_sha256(source / name) for name in preserved
+        },
+    }
+    manifest = dict(
+        build_experiment_manifest(config=config, upstream=upstream, dataset=dataset)
+    )
+    manifest["forecast_provenance"] = provenance
+    if output.exists():
+        return _reconcile_existing(output, manifest)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(prefix=f".{output.name}.building-", dir=output.parent)
+    ).resolve()
+    if temporary.parent != output.parent:
+        raise OutputCollisionError(
+            "Temporary reevaluation directory escaped its parent."
+        )
+    try:
+        for name in preserved:
+            shutil.copy2(source / name, temporary / name)
+        _write_json(temporary / "upstream_run_manifest.json", upstream.manifest)
+        _write_json(
+            temporary / "upstream_data_quality_report.json", upstream.quality_report
+        )
+        persist_dataset_manifest(dataset, temporary / "dataset_manifest.json")
+        _write_json(temporary / EXPERIMENT_MANIFEST_NAME, manifest)
+        persist_evaluation_artifacts(evaluation, temporary)
+        run_manifest = dict(
+            build_run_manifest(
+                config=config,
+                upstream=upstream,
+                experiment_manifest=manifest,
+                experiment_dir=temporary,
+                state="numerical_complete",
+            )
+        )
+        run_manifest["forecast_provenance"] = provenance
+        _write_json(temporary / RUN_MANIFEST_NAME, run_manifest)
+        for name in preserved:
+            if (
+                artifact_sha256(temporary / name)
+                != provenance["preserved_artifacts"][name]
+            ):
+                raise ArtifactReconciliationFailedError(
+                    "Copied forecasts changed during reevaluation."
+                )
+        verify_experiment_directory(temporary, require_complete=False)
+        temporary.replace(output)
+        return ExperimentRunResult(output, False, run_manifest)
+    except Exception:
+        if temporary.exists() and temporary.parent == output.parent:
+            shutil.rmtree(temporary)
+        raise
+
+
 def build_experiment_manifest(
     *,
     config: ForecastConfig,
@@ -337,6 +471,7 @@ def build_run_manifest(
             name: dict(schema) for name, schema in _ARTIFACT_SCHEMAS.items()
         },
         "model_inventory": list(_MODEL_INVENTORY),
+        "forecast_policies": dict(FORECAST_POLICIES),
         "random_seeds": {
             "experiment": config.experiment.random_seed,
             "moving_block_bootstrap": config.experiment.random_seed,
@@ -475,7 +610,14 @@ def _reconcile_existing(
             f"{output_dir}."
         )
     existing = _load_json(existing_path)
-    if existing != expected_experiment_manifest:
+    comparable = dict(existing)
+    provenance = existing.get("forecast_provenance")
+    if (
+        provenance is not None
+        and "forecast_provenance" not in expected_experiment_manifest
+    ):
+        comparable.pop("forecast_provenance")
+    if comparable != expected_experiment_manifest:
         raise OutputCollisionError(
             "Output directory belongs to a materially different experiment: "
             f"{output_dir}."
@@ -484,11 +626,67 @@ def _reconcile_existing(
         output_dir,
         require_complete=False,
     )
+    if provenance is not None:
+        _verify_forecast_provenance(output_dir, provenance, run_manifest)
     return ExperimentRunResult(
         output_dir=output_dir,
         reused=True,
         run_manifest=run_manifest,
     )
+
+
+def _require_gap_safe_garch_forecasts(windows_path: Path) -> None:
+    """Reject saved GARCH forecasts that earlier code may have computed wrongly.
+
+    Before the period-gap fix, a GARCH state skipped the observations between
+    configured periods. Only a window that follows a gap without a scheduled
+    refit was affected; a refit starts from a fresh fit either way.
+    """
+    windows = pd.read_csv(windows_path, parse_dates=["forecast_origin", "target_date"])
+    garch = windows.loc[
+        windows["model_id"].isin((GAUSSIAN_GARCH_MODEL_ID, STUDENT_T_GARCH_MODEL_ID))
+    ]
+    for _, group in garch.groupby(["series_id", "model_id"]):
+        ordered = group.sort_values("target_date")
+        adjacent = (
+            ordered["forecast_origin"].to_numpy()[1:]
+            == ordered["target_date"].to_numpy()[:-1]
+        )
+        refit = ordered["scheduled_refit"].to_numpy(dtype=bool)[1:]
+        if not (adjacent | refit).all():
+            raise ArtifactReconciliationFailedError(
+                "Saved GARCH forecasts predate the period-gap fix and continue "
+                "a fit across a period gap; rerun the experiment to regenerate "
+                "them before reevaluation."
+            )
+
+
+def _verify_forecast_provenance(
+    directory: Path, provenance: Any, run_manifest: Mapping[str, Any]
+) -> None:
+    if (
+        not isinstance(provenance, Mapping)
+        or run_manifest.get("forecast_provenance") != provenance
+    ):
+        raise ArtifactReconciliationFailedError(
+            "Forecast provenance manifests do not match."
+        )
+    for key in (
+        "source_identity",
+        "dependency_versions",
+        "effective_configuration",
+        "preserved_artifacts",
+    ):
+        if not isinstance(provenance.get(key), Mapping):
+            raise ArtifactReconciliationFailedError(
+                f"Forecast provenance is missing {key}."
+            )
+    preserved = provenance["preserved_artifacts"]
+    for name in _PRESERVED_FORECAST_ARTIFACTS:
+        if preserved.get(name) != artifact_sha256(directory / name):
+            raise ArtifactReconciliationFailedError(
+                f"Forecast provenance checksum mismatch: {name}."
+            )
 
 
 def _source_root() -> Path:
@@ -591,6 +789,7 @@ __all__ = [
     "dependency_versions",
     "execute_experiment",
     "finalize_run_manifest",
+    "reevaluate_experiment",
     "source_identity",
     "verify_experiment_directory",
 ]

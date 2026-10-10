@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -8,6 +9,7 @@ import pandas as pd
 import pytest
 
 from market_risk_forecasting.config import load_config
+from market_risk_forecasting.errors import InsufficientHistoryError
 from market_risk_forecasting.evaluation import (
     BOOTSTRAP_COMPARISON_COLUMNS,
     COVERAGE_TEST_COLUMNS,
@@ -95,7 +97,7 @@ def test_undefined_christoffersen_test_is_labelled() -> None:
     assert math.isfinite(float(statistics["kupiec_lr"]))
 
 
-def test_moving_block_bootstrap_is_reproducible_and_stratified() -> None:
+def test_moving_block_bootstrap_is_reproducible_and_synchronized() -> None:
     groups = (
         np.array([-2.0, -1.0, 0.0, 1.0]),
         np.array([2.0, 3.0, 4.0, 5.0]),
@@ -117,6 +119,136 @@ def test_moving_block_bootstrap_is_reproducible_and_stratified() -> None:
     np.testing.assert_array_equal(first, second)
     assert first.shape == (100,)
     assert np.isfinite(first).all()
+
+
+def test_pooled_bootstrap_preserves_cross_asset_dependence() -> None:
+    values = np.array([-3.0, 2.0, 1.0, 4.0, -2.0, 5.0])
+    controls = dict(block_length=2, resamples=200, random_seed=42)
+    single = moving_block_bootstrap((values,), **controls)
+    duplicate = moving_block_bootstrap((values, values), **controls)
+    hedged = moving_block_bootstrap((values, -values), **controls)
+
+    np.testing.assert_allclose(duplicate, single)
+    np.testing.assert_array_equal(hedged, np.zeros(200))
+
+
+def test_bootstrap_retains_missing_dates_in_time_blocks() -> None:
+    values = np.array([1.0, np.nan, np.nan, 3.0, 5.0])
+    draws = moving_block_bootstrap(
+        (values,), block_length=3, resamples=200, random_seed=42
+    )
+
+    assert np.isfinite(draws).all()
+    assert draws.min() == 1.0
+    # Removing the missing dates would leave one length-three block, producing
+    # the constant mean 3 in every replicate instead of this uncertainty.
+    assert np.ptp(draws) > 0.0
+
+
+@pytest.mark.parametrize("block_length", [4, 20])
+def test_single_possible_bootstrap_block_rejects_inference(block_length: int) -> None:
+    with pytest.raises(InsufficientHistoryError, match="multiple possible date blocks"):
+        moving_block_bootstrap(
+            (np.array([1.0, 2.0, 3.0, 4.0]),),
+            block_length=block_length,
+            resamples=2000,
+            random_seed=42,
+        )
+
+
+def test_short_period_keeps_effects_without_confidence_claims(
+    project_root: Path,
+) -> None:
+    forecasts, realizations = _evaluation_inputs()
+    artifacts = evaluate_forecasts(
+        forecasts=forecasts,
+        realizations=realizations,
+        config=load_config(project_root / "config.example.toml"),
+    )
+    comparisons = artifacts.bootstrap_comparisons
+    observed = comparisons.loc[comparisons.paired_count.gt(0)]
+    assert observed.value.notna().all()
+    assert observed.median_difference.notna().all()
+    assert (
+        observed[["interval_lower", "interval_upper", "fraction_below_zero"]]
+        .isna()
+        .all()
+        .all()
+    )
+
+
+def test_coverage_does_not_bridge_gaps_or_join_exception_clusters() -> None:
+    values = np.array(
+        [False, False, True, True, False, True, False, False, True, False]
+    )
+    links = np.ones(len(values) - 1, dtype=bool)
+    links[2] = False
+    continuous = coverage_statistics(values, expected_probability=0.20)
+    gapped = coverage_statistics(values, expected_probability=0.20, adjacent=links)
+
+    assert gapped["n11"] == 0
+    assert gapped["n00"] == continuous["n00"]
+    assert gapped["n01"] == continuous["n01"]
+    assert gapped["n10"] == continuous["n10"]
+    assert gapped["longest_exception_cluster"] == 1
+    assert gapped["excluded_gap_transition_count"] == 1
+    assert gapped["kupiec_lr"] == continuous["kupiec_lr"]
+    assert gapped["christoffersen_status"] == "insufficient_events"
+
+
+def test_evaluation_detects_missing_forecasts_as_transition_gaps(
+    project_root: Path,
+) -> None:
+    forecasts, realizations = _evaluation_inputs()
+    realizations["period"] = "test"
+    # Remove one middle EWMA forecast from a otherwise valid sequence. The
+    # next successful forecast cannot treat the earlier target as its origin.
+    missing = forecasts["model_id"].eq("ewma") & forecasts["target_date"].eq(
+        realizations["target_date"].iloc[1]
+    )
+    forecasts.loc[missing, "status"] = "failed"
+    artifacts = evaluate_forecasts(
+        forecasts=forecasts,
+        realizations=realizations,
+        config=load_config(project_root / "config.example.toml"),
+    )
+    gaps = artifacts.coverage_tests.loc[
+        artifacts.coverage_tests["model_id"].eq("ewma")
+        & artifacts.coverage_tests["metric"].eq("excluded_gap_transition_count")
+    ]
+    assert gaps["value"].eq(1).all()
+
+
+def test_evaluation_aligns_assets_before_pooled_bootstrap(project_root: Path) -> None:
+    forecasts, realizations = _evaluation_inputs()
+    realizations["simple_return"] = 0.0
+    realizations["squared_return"] = 0.0
+    realizations["loss"] = 0.0
+    realizations["period"] = "test"
+    other_forecasts = forecasts.assign(series_id="QQQ")
+    shift = np.array([-0.01, 0.01, -0.02, 0.02])
+    forecasts.loc[forecasts.model_id.eq("ewma"), "return_quantile_0_05"] += shift
+    other_forecasts.loc[
+        other_forecasts.model_id.eq("ewma"), "return_quantile_0_05"
+    ] -= shift
+    config = load_config(project_root / "config.example.toml")
+    config = replace(
+        config, evaluation=replace(config.evaluation, bootstrap_block_length=1)
+    )
+    artifacts = evaluate_forecasts(
+        forecasts=pd.concat([other_forecasts.iloc[::-1], forecasts], ignore_index=True),
+        realizations=pd.concat([realizations, realizations.assign(series_id="QQQ")]),
+        config=config,
+    )
+    pooled = artifacts.bootstrap_comparisons.loc[
+        artifacts.bootstrap_comparisons.series_id.eq("ALL")
+        & artifacts.bootstrap_comparisons.model_id.eq("ewma")
+        & artifacts.bootstrap_comparisons.metric.eq("pinball_loss_0_05")
+        & artifacts.bootstrap_comparisons.period.eq("test")
+    ].iloc[0]
+    assert pooled["paired_count"] == 8
+    assert pooled["interval_lower"] == pytest.approx(pooled["value"])
+    assert pooled["interval_upper"] == pytest.approx(pooled["value"])
 
 
 def _evaluation_inputs() -> tuple[pd.DataFrame, pd.DataFrame]:

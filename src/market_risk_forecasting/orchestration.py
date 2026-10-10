@@ -224,6 +224,8 @@ def _realization_frame(
         min(
             config.historical.variance_window,
             config.historical.var_window,
+            config.ewma.initialization_window,
+            config.garch.estimation_window,
         )
         - 1
     )
@@ -571,6 +573,7 @@ def _garch_forecast_frames(
             active_state: GarchState | None = None
             active_fit_id: str | None = None
             active_error_code = "MODEL_FIT_FAILED"
+            previous_origin_position: int | None = None
             for window in windows_by_series_model[(series_id, model.model_id)]:
                 if window.scheduled_refit:
                     active_fit_id = make_fit_id(
@@ -614,6 +617,16 @@ def _garch_forecast_frames(
                     values = _failed_forecast_values(active_error_code)
                 else:
                     try:
+                        if (
+                            not window.scheduled_refit
+                            and previous_origin_position is not None
+                        ):
+                            for position in range(
+                                previous_origin_position + 1, window.origin_position
+                            ):
+                                active_state, _ = model.advance(
+                                    active_state, float(series.iloc[position])
+                                )
                         active_state, forecast = model.advance(
                             active_state,
                             float(series.iloc[window.origin_position]),
@@ -624,6 +637,7 @@ def _garch_forecast_frames(
                         active_error_code = exc.code.value
                         values = _failed_forecast_values(active_error_code)
 
+                previous_origin_position = window.origin_position
                 forecast_id = make_forecast_id(
                     experiment_id=config.experiment.experiment_id,
                     fit_id=active_fit_id,

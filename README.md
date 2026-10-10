@@ -16,11 +16,16 @@ investment advice, a regulatory model, or a guarantee of future performance.
 
 ![Final-test candidate effects by series](docs/images/dotcom_series_comparisons.png)
 
-This SPY, MSFT, CSCO, and AAPL example uses data acquired on August 15, 2026,
+This SPY, MSFT, CSCO, and AAPL example uses data acquired on October 9, 2026,
 with observations through July 31, 2026. It shows final-test candidate-minus-
 benchmark loss differences with 95% moving-block bootstrap intervals. Values
 below zero favor the candidate. The VaR panel is expressed in basis points for
 readability; the generated report retains unscaled values in its tables.
+
+The example uses synchronized date-block sampling with missing forecasts kept
+on the date grid. Saved experiments can be reevaluated without refitting using
+`tools/reevaluate_saved_experiment.py`; the new run records the original
+forecast provenance and writes corrected evaluation and reporting separately.
 
 ## How the two projects fit together
 
@@ -45,8 +50,8 @@ Yahoo Finance or local prices
 
 You do not need to clone the historical repository separately. This project's
 dependency declaration installs its `historical-asset-risk` command from an
-exact reviewed commit. The historical repository must remain publicly accessible
-because it is a Git dependency.
+exact reviewed v0.2.1 commit. The historical repository must remain publicly
+accessible because it is a Git dependency.
 
 ## How `historical-asset-risk-engine` is implemented here
 
@@ -106,6 +111,19 @@ historical-asset-risk --help
 market-risk-forecast --help
 ```
 
+For an existing environment after pulling the HARE v0.2.1 upgrade, install the
+updated dependency pins before reinstalling this project:
+
+```console
+conda activate market-risk-forecasting-engine
+python -m pip install -r requirements.lock
+python -m pip install --no-deps --no-build-isolation -e .
+```
+
+Both the installed HARE package and the upstream run manifest must identify
+v0.2.1. Reacquire real upstream runs with that version and retain the original
+manifests for earlier runs.
+
 ### 2. Validate the offline synthetic fixture
 
 Before downloading market data, verify the package and public handoff contract
@@ -119,7 +137,7 @@ The command writes nothing. A successful check includes:
 
 ```text
 Input validation: ok
-Upstream package: historical-asset-risk-engine 0.1.1
+Upstream package: historical-asset-risk-engine 0.2.1
 Series: SPY, IEF, GLD, FIXTURE_PROXY
 ```
 
@@ -152,8 +170,10 @@ for complying with provider terms.
 market-risk-forecast validate-input --config configs/dotcom_technology.toml
 ```
 
-The acquisition `output_dir`, forecasting `input_run_dir`, and ordered ticker
-lists must match exactly.
+The acquisition `output_dir` and forecasting `input_run_dir` must resolve to
+the same directory, and the ordered ticker lists must match exactly. HARE
+resolves paths in its config relative to that config's folder; forecasting
+paths are relative to the working directory.
 
 ### 5. Reproduce forecasting, evaluation, and reporting
 
@@ -315,7 +335,7 @@ commit remains public.
 ### Required upstream files are missing
 
 Run the matching `historical-asset-risk --config ...` command first and verify
-that the acquisition `output_dir` matches the forecasting `input_run_dir`.
+that the acquisition `output_dir` resolves to the forecasting `input_run_dir`.
 
 ### Yahoo reports `database is locked`
 

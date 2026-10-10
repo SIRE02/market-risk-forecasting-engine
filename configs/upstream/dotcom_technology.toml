@@ -9,4 +9,4 @@ observations_per_year = 252
 quantiles = [0.05, 0.25, 0.75, 0.95]
 quantile_method = "linear"
 downside_target = 0.0
-output_dir = "data/upstream/spy-msft-csco-aapl-1993-2026"
+output_dir = "../../data/upstream/spy-msft-csco-aapl-1993-2026"

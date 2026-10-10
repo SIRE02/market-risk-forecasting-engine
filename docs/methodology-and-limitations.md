@@ -19,6 +19,12 @@ forward-fill declarations, and price/return observation reconciliation.
 Required history is calculated from the configured model windows and periods;
 the engine does not impose fixed calendar dates or a fixed observation count.
 
+The real-data study declares `upstream.market_calendar_id = "XNYS"`. The
+adapter verifies every aligned price date, including the first date omitted
+from returns, is a consecutive session on HARE's versioned calendar. Other
+inputs without a declared calendar retain observation-based timing; the
+synthetic weekday fixture is not an exchange-session dataset.
+
 ## Forecast timing
 
 A forecast made at date `t` may use observations through `t`. Its realization
@@ -57,6 +63,9 @@ retry policy, and stationarity tolerance. Fitted parameters remain fixed
 between scheduled refits while each new return advances conditional variance.
 Failed fits remain visible and stale parameters are not reused.
 
+If experiment periods leave gaps, the GARCH filter still advances through
+every intervening observed return before the next evaluated forecast.
+
 Valid GARCH parameters require positive omega, non-negative alpha and beta,
 and persistence below one outside the configured tolerance. Student-t degrees
 of freedom must exceed two, and its quantiles are standardized to unit
@@ -81,10 +90,33 @@ An exception occurs only when realized loss is strictly greater than reported
 VaR. Undefined independence cases are labelled `insufficient_events` rather
 than receiving invented statistics.
 
+Independence transitions require the later forecast's origin to equal the
+earlier target date. Failed forecasts break that chain and exception clusters;
+the table records `excluded_gap_transition_count`. Kupiec coverage still uses
+all available forecasts. These are availability-conditional results, and
+missing forecasts can be informative about model performance.
+
 Candidate-minus-benchmark loss differences use a deterministic moving-block
 bootstrap. Block length, resample count, interval confidence, and random seed
-come from the effective experiment configuration. Blocks are sampled within
-each series before pooled all-series results are calculated.
+come from the effective experiment configuration. Every series is aligned to
+the period's full target-date grid. One set of contiguous date-block indices
+is drawn for all assets in each replicate, preserving contemporaneous
+dependence. Unavailable paired forecasts remain missing cells on that grid;
+they are not compressed into adjacent observations. Replicates average the
+available asset/date losses, using the same weighting as the point estimate.
+Replicates with no available losses are redrawn. The intervals describe
+performance conditional on available forecasts, not performance on failed
+forecast dates.
+
+Confidence intervals and bootstrap fractions are left unavailable when the
+period has only one possible date block, fewer than two observed dates, or
+fewer than two resamples. Descriptive mean/median effects and paired counts
+remain available; a short period is not represented as a zero-width interval.
+
+This engine models decimal simple returns. HARE's descriptive asset-volatility
+tables use log returns, so their levels should not be treated as identical
+quantities. Squared returns are a noisy second-moment proxy under the models'
+zero-mean assumption; rolling sample variance is a centered benchmark.
 
 ## Reproducibility
 
@@ -92,6 +124,18 @@ Every run records the effective configuration, dependency versions, source
 identity, input and output checksums, dataset lineage, forecast windows, fit
 diagnostics, forecasts, realizations, evaluation tables, and report artifacts.
 Reports are generated only from the saved and checksummed numerical outputs.
+
+After an evaluation-only correction, use
+`tools/reevaluate_saved_experiment.py --source-dir SOURCE --config CONFIG --output-dir NEW`
+to create a separate run from verified saved forecasts. Input checksums and
+fitting controls must match; GARCH period gaps require a fresh numerical run.
+The new manifests and report preserve the original forecast source identity,
+dependency versions, and copied-artifact hashes alongside the new evaluation
+identity. The original experiment is not overwritten.
+Repeated reevaluations retain the original fitting identity, dependencies,
+and configuration, while separately recording the immediate parent
+evaluation. Normal run/reproduce commands can reconcile a corrected run when
+its material identity and preserved forecast checksums still match.
 The human-readable report surfaces the acquisition timestamp, observed source
 coverage, upstream return checksum, forecasting commit, source-tree state, and
 source-tree fingerprint from those manifests.

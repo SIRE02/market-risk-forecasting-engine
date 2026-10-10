@@ -1,7 +1,8 @@
 {
   "project": "historical-asset-risk-engine",
-  "project_version": "0.1.1",
-  "git_commit": "9dee32b3e8af1c675863a2cd3c033ab6ce538c78",
+  "project_version": "0.2.1",
+  "git_commit": "189a86dce533d8ec6b3d13b8a8c930c3320a95ed",
+  "git_worktree_dirty": null,
   "execution_timestamp": "2026-01-01T00:00:00+00:00",
   "fixture": {
     "synthetic": true,
@@ -22,7 +23,7 @@
     "missing_data": {
       "alignment": "complete_case_adjusted_prices",
       "forward_fill": false,
-      "gap_spanning_return_policy": "fail"
+      "gap_spanning_return_policy": "fail_when_retained_complete_case_dates_are_nonconsecutive_within_the_provider_observation_union"
     }
   },
   "data_source": {
@@ -63,7 +64,7 @@
     }
   },
   "consumer_compatibility": {
-    "package_version": "0.1.1",
+    "package_version": "0.2.1",
     "artifact_schemas": {
       "data_quality_report.json": {
         "schema_id": "historical-asset-risk/data-quality-report",

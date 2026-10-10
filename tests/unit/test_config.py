@@ -30,7 +30,10 @@ def test_real_data_configuration_pair_matches(project_root: Path) -> None:
     forecasting = load_config(project_root / "configs" / f"{name}.toml")
 
     assert acquisition.tickers == forecasting.upstream.instruments
-    assert acquisition.output_dir == forecasting.experiment.input_run_dir
+    assert (
+        acquisition.output_dir.resolve()
+        == (project_root / forecasting.experiment.input_run_dir).resolve()
+    )
     assert date.fromisoformat(acquisition.start_date) <= (
         forecasting.periods.development_start
     )
@@ -45,6 +48,22 @@ def test_configuration_accepts_dynamic_universe(project_root: Path) -> None:
     assert config.portfolio_proxy.series_id is None
     assert config.portfolio_proxy.weights == {}
     assert config.to_dict()["portfolio_proxy"] == {"enabled": False}
+    assert config.upstream.market_calendar_id == "XNYS"
+
+
+def test_unsupported_upstream_calendar_fails(
+    project_root: Path, tmp_path: Path
+) -> None:
+    source = (project_root / "configs/dotcom_technology.toml").read_text(
+        encoding="utf-8"
+    )
+    path = tmp_path / "calendar.toml"
+    path.write_text(
+        source.replace('market_calendar_id = "XNYS"', 'market_calendar_id = "UNKNOWN"'),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigInvalidError, match="market_calendar_id"):
+        load_config(path)
 
 
 def test_proxy_weights_must_match_dynamic_universe(
@@ -124,17 +143,20 @@ def test_invalid_proxy_weight_sum_fails(project_root: Path, tmp_path: Path) -> N
         load_config(path)
 
 
+@pytest.mark.parametrize("package_version", ["0.1.1", "9.9.9"])
 def test_incompatible_upstream_identity_fails(
-    project_root: Path, tmp_path: Path
+    project_root: Path, tmp_path: Path, package_version: str
 ) -> None:
     source = (project_root / "config.example.toml").read_text(encoding="utf-8")
     path = tmp_path / "upstream.toml"
     path.write_text(
-        source.replace('package_version = "0.1.1"', 'package_version = "9.9.9"'),
+        source.replace(
+            'package_version = "0.2.1"', f'package_version = "{package_version}"'
+        ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ConfigInvalidError, match="v0.1 public contract"):
+    with pytest.raises(ConfigInvalidError, match=r"v0\.2\.1 public contract"):
         load_config(path)
 
 

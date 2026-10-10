@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -12,7 +13,11 @@ import pandas as pd
 from scipy.stats import chi2
 
 from market_risk_forecasting.config import ForecastConfig
-from market_risk_forecasting.errors import OutputCollisionError, WindowAlignmentError
+from market_risk_forecasting.errors import (
+    InsufficientHistoryError,
+    OutputCollisionError,
+    WindowAlignmentError,
+)
 from market_risk_forecasting.models.ewma import EWMA_MODEL_ID
 from market_risk_forecasting.models.garch import (
     GAUSSIAN_GARCH_MODEL_ID,
@@ -155,6 +160,8 @@ def exception_indicator(*, realized_loss: float, value_at_risk: float) -> bool:
 
 def transition_counts(
     exceptions: np.ndarray[Any, np.dtype[np.bool_]],
+    *,
+    adjacent: np.ndarray[Any, np.dtype[np.bool_]] | None = None,
 ) -> dict[str, int]:
     """Count consecutive binary transitions for Christoffersen testing."""
     values = np.asarray(exceptions, dtype=bool)
@@ -162,8 +169,9 @@ def transition_counts(
         raise WindowAlignmentError("Exception indicators must be one-dimensional.")
     if values.size < 2:
         return {"n00": 0, "n01": 0, "n10": 0, "n11": 0}
-    previous = values[:-1]
-    current = values[1:]
+    links = _transition_links(values.size, adjacent)
+    previous = values[:-1][links]
+    current = values[1:][links]
     return {
         "n00": int((~previous & ~current).sum()),
         "n01": int((~previous & current).sum()),
@@ -174,11 +182,17 @@ def transition_counts(
 
 def longest_exception_cluster(
     exceptions: np.ndarray[Any, np.dtype[np.bool_]],
+    *,
+    adjacent: np.ndarray[Any, np.dtype[np.bool_]] | None = None,
 ) -> int:
     """Return the longest consecutive run of strict VaR exceptions."""
     longest = 0
     current = 0
-    for observed in np.asarray(exceptions, dtype=bool):
+    values = np.asarray(exceptions, dtype=bool)
+    links = _transition_links(values.size, adjacent)
+    for position, observed in enumerate(values):
+        if position > 0 and not links[position - 1]:
+            current = 0
         if observed:
             current += 1
             longest = max(longest, current)
@@ -187,10 +201,23 @@ def longest_exception_cluster(
     return longest
 
 
+def _transition_links(
+    size: int,
+    adjacent: np.ndarray[Any, np.dtype[np.bool_]] | None,
+) -> np.ndarray[Any, np.dtype[np.bool_]]:
+    if adjacent is None:
+        return np.ones(max(0, size - 1), dtype=bool)
+    links = np.asarray(adjacent, dtype=bool)
+    if links.shape != (max(0, size - 1),):
+        raise WindowAlignmentError("Adjacency must describe each consecutive pair.")
+    return links
+
+
 def coverage_statistics(
     exceptions: np.ndarray[Any, np.dtype[np.bool_]],
     *,
     expected_probability: float,
+    adjacent: np.ndarray[Any, np.dtype[np.bool_]] | None = None,
 ) -> dict[str, float | int | str | None]:
     """Compute Kupiec and Christoffersen statistics for one ordered sequence."""
     values = np.asarray(exceptions, dtype=bool)
@@ -221,13 +248,15 @@ def coverage_statistics(
     )
     kupiec_p_value = float(chi2.sf(kupiec_lr, df=1))
 
-    counts = transition_counts(values)
+    links = _transition_links(values.size, adjacent)
+    counts = transition_counts(values, adjacent=links)
     result: dict[str, float | int | str | None] = {
         "expected_exception_probability": expected_probability,
         "observation_count": observation_count,
         "exception_count": exception_count,
         "exception_rate": exception_rate,
-        "longest_exception_cluster": longest_exception_cluster(values),
+        "longest_exception_cluster": longest_exception_cluster(values, adjacent=links),
+        "excluded_gap_transition_count": int((~links).sum()),
         **counts,
         "kupiec_lr": kupiec_lr,
         "kupiec_p_value": kupiec_p_value,
@@ -287,7 +316,12 @@ def moving_block_bootstrap(
     resamples: int,
     random_seed: int,
 ) -> np.ndarray[Any, np.dtype[np.float64]]:
-    """Bootstrap the pooled mean while keeping blocks within each series."""
+    """Resample shared date blocks of aligned series, retaining missing cells.
+
+    Each vector has one slot per target date. NaN marks an unavailable paired
+    forecast, not a removed date. The statistic weights each available
+    series/date observation equally, as the reported pooled mean does.
+    """
     if not groups or any(values.size == 0 for values in groups):
         raise WindowAlignmentError(
             "Moving-block bootstrap requires non-empty series groups."
@@ -296,28 +330,46 @@ def moving_block_bootstrap(
         raise WindowAlignmentError(
             "Moving-block bootstrap controls must be positive integers."
         )
-    random = np.random.default_rng(random_seed)
-    pooled_sums = np.zeros(resamples, dtype=float)
-    pooled_count = 0
-    for raw_values in groups:
-        values = np.asarray(raw_values, dtype=float)
-        if values.ndim != 1 or not np.isfinite(values).all():
-            raise WindowAlignmentError(
-                "Moving-block bootstrap inputs must be finite vectors."
-            )
-        effective_block = min(block_length, values.size)
-        block_count = math.ceil(values.size / effective_block)
-        starts = random.integers(
-            0,
-            values.size - effective_block + 1,
-            size=(resamples, block_count),
+    vectors = tuple(np.asarray(values, dtype=float) for values in groups)
+    if any(values.ndim != 1 or np.isinf(values).any() for values in vectors):
+        raise WindowAlignmentError("Bootstrap inputs must be vectors without infinity.")
+    if len({values.size for values in vectors}) != 1:
+        raise WindowAlignmentError("Bootstrap series must share the same date grid.")
+    panel = np.column_stack(vectors)
+    counts = np.isfinite(panel).sum(axis=1)
+    if counts.sum() == 0:
+        raise WindowAlignmentError("Bootstrap inputs contain no observed differences.")
+    date_count = len(panel)
+    if date_count <= block_length or np.count_nonzero(counts) < 2 or resamples < 2:
+        raise InsufficientHistoryError(
+            "Bootstrap inference requires multiple possible date blocks, "
+            "at least two observed dates, and at least two resamples."
         )
-        offsets = np.arange(effective_block)
-        indices = starts[:, :, None] + offsets[None, None, :]
-        sampled = values[indices].reshape(resamples, -1)[:, : values.size]
-        pooled_sums += sampled.sum(axis=1)
-        pooled_count += values.size
-    return pooled_sums / pooled_count
+    # Summing a date's panel before sampling is equivalent to sampling its
+    # entire row. Prefix sums avoid materializing resamples x dates x series.
+    sums = np.concatenate(([0.0], np.cumsum(np.nansum(panel, axis=1))))
+    totals = np.concatenate(([0], np.cumsum(counts)))
+    effective_block = block_length
+    block_count = math.ceil(date_count / effective_block)
+    lengths = np.full(block_count, effective_block, dtype=int)
+    lengths[-1] = date_count - effective_block * (block_count - 1)
+    random = np.random.default_rng(random_seed)
+    means = np.full(resamples, np.nan, dtype=float)
+    # Extremely sparse sequences can draw only unavailable dates. Redraw those
+    # replicates rather than inventing a zero loss or compressing the date grid.
+    for _ in range(100):
+        missing = np.flatnonzero(np.isnan(means))
+        if missing.size == 0:
+            return means
+        starts = random.integers(
+            0, date_count - effective_block + 1, size=(missing.size, block_count)
+        )
+        ends = starts + lengths
+        sampled_sums = (sums[ends] - sums[starts]).sum(axis=1)
+        sampled_counts = (totals[ends] - totals[starts]).sum(axis=1)
+        observed = sampled_counts > 0
+        means[missing[observed]] = sampled_sums[observed] / sampled_counts[observed]
+    raise WindowAlignmentError("Bootstrap could not draw observed loss differences.")
 
 
 def evaluate_forecasts(
@@ -354,6 +406,12 @@ def evaluate_forecasts(
         quantile_observations=quantile_observations,
         experiment_id=experiment_id,
         config=config,
+        target_dates={
+            str(period): pd.DatetimeIndex(
+                group["target_date"].drop_duplicates()
+            ).sort_values()
+            for period, group in joined.groupby("period")
+        },
     )
     test_years = tuple(
         range(config.periods.test_start.year, config.periods.test_end.year + 1)
@@ -642,6 +700,10 @@ def _coverage_table(
         statistics = coverage_statistics(
             ordered["exception"].to_numpy(dtype=bool),
             expected_probability=float(cast(Any, key["tail_probability"])),
+            adjacent=(
+                ordered["forecast_origin"].to_numpy()[1:]
+                == ordered["target_date"].to_numpy()[:-1]
+            ),
         )
         observation_count = int(cast(Any, statistics["observation_count"]))
         christoffersen_status = str(statistics["christoffersen_status"])
@@ -679,6 +741,7 @@ def _bootstrap_table(
     quantile_observations: pd.DataFrame,
     experiment_id: str,
     config: ForecastConfig,
+    target_dates: Mapping[str, pd.DatetimeIndex],
 ) -> pd.DataFrame:
     specifications = (
         (
@@ -724,6 +787,9 @@ def _bootstrap_table(
                                 benchmark_model_id=benchmark_model_id,
                                 metric=metric,
                                 config=config,
+                                target_dates=target_dates.get(
+                                    period, pd.DatetimeIndex([])
+                                ),
                             )
                         )
     return _frame(rows, BOOTSTRAP_COMPARISON_COLUMNS)
@@ -771,6 +837,7 @@ def _bootstrap_record(
     benchmark_model_id: str,
     metric: str,
     config: ForecastConfig,
+    target_dates: pd.DatetimeIndex,
 ) -> dict[str, Any]:
     paired_count = len(paired)
     common = {
@@ -797,19 +864,8 @@ def _bootstrap_record(
     }
     if paired_count == 0:
         return common
-    groups = tuple(
-        group["difference"].to_numpy(dtype=float)
-        for _, group in paired.groupby("series_id", sort=True)
-    )
-    means = moving_block_bootstrap(
-        groups,
-        block_length=config.evaluation.bootstrap_block_length,
-        resamples=config.evaluation.bootstrap_resamples,
-        random_seed=config.experiment.random_seed,
-    )
     difference = paired["difference"].to_numpy(dtype=float)
     mean_difference = float(difference.mean())
-    tail = (1.0 - config.evaluation.bootstrap_confidence) / 2.0
     common.update(
         {
             "value": mean_difference,
@@ -820,9 +876,28 @@ def _bootstrap_record(
                 if mean_difference > 0.0
                 else "tie"
             ),
+            "median_difference": float(np.median(difference)),
+        }
+    )
+    panel = paired.pivot(index="target_date", columns="series_id", values="difference")
+    panel = panel.reindex(target_dates)
+    groups = tuple(panel[column].to_numpy(dtype=float) for column in panel.columns)
+    try:
+        means = moving_block_bootstrap(
+            groups,
+            block_length=config.evaluation.bootstrap_block_length,
+            resamples=config.evaluation.bootstrap_resamples,
+            random_seed=config.experiment.random_seed,
+        )
+    except InsufficientHistoryError:
+        # Keep descriptive effects and counts, but do not publish a degenerate
+        # confidence interval or a bootstrap probability from too little data.
+        return common
+    tail = (1.0 - config.evaluation.bootstrap_confidence) / 2.0
+    common.update(
+        {
             "interval_lower": float(np.quantile(means, tail)),
             "interval_upper": float(np.quantile(means, 1.0 - tail)),
-            "median_difference": float(np.median(difference)),
             "fraction_below_zero": float(np.mean(means < 0.0)),
         }
     )

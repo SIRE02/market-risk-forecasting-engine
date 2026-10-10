@@ -1,4 +1,4 @@
-"""Validated adapter for historical-asset-risk-engine v0.1.1 artifacts."""
+"""Validated adapter for historical-asset-risk-engine v0.2.1 artifacts."""
 
 from __future__ import annotations
 
@@ -385,12 +385,41 @@ def coverage_requirements(config: ForecastConfig) -> UpstreamCoverageRequirement
     )
 
 
+def _validate_calendar(
+    frame: pd.DataFrame,
+    quality: Mapping[str, Any],
+    calendar_id: str | None,
+) -> None:
+    if calendar_id is None:
+        return
+    from historical_asset_risk.market_calendar import (  # type: ignore[import-untyped]
+        resolve_market_calendar,
+    )
+
+    if not frame.index.equals(pd.DatetimeIndex(frame.index).normalize()):
+        raise UpstreamQualityGateFailedError(
+            "Daily returns must not contain intraday timestamps."
+        )
+    first_price_date = _iso_date(
+        quality.get("first_common_date"), label="quality.first_common_date"
+    )
+    # Returns omit the first aligned price date. Include it so a missing session
+    # in the first return interval is checked as well as all later intervals.
+    price_dates = (first_price_date, *(pd.Timestamp(day).date() for day in frame.index))
+    try:
+        resolve_market_calendar(calendar_id).require_consecutive_sessions(price_dates)
+    except ValueError as exc:
+        raise UpstreamQualityGateFailedError(
+            f"Upstream session-calendar validation failed: {exc}"
+        ) from exc
+
+
 def load_upstream_run(
     input_run_dir: Path,
     expected: UpstreamConfig,
     coverage: UpstreamCoverageRequirements,
 ) -> UpstreamRun:
-    """Validate and load one complete upstream v0.1.1 run without network access."""
+    """Validate and load one complete upstream v0.2.1 run without network access."""
     run_dir = Path(input_run_dir)
     missing = [name for name in _REQUIRED_FILES if not (run_dir / name).is_file()]
     if missing:
@@ -409,6 +438,7 @@ def load_upstream_run(
         quality=quality,
         coverage=coverage,
     )
+    _validate_calendar(frame, quality, expected.market_calendar_id)
     checksums = {name: sha256_file(run_dir / name) for name in sorted(_REQUIRED_FILES)}
     if any(
         not isinstance(value, str) or len(value) != 64 for value in checksums.values()

@@ -42,6 +42,7 @@ class UpstreamConfig:
     simple_returns_schema_version: str
     simple_returns_units: str
     instruments: tuple[str, ...]
+    market_calendar_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -135,10 +136,11 @@ def _validate_keys(
     *,
     context: str,
     expected: set[str],
+    optional: set[str] | None = None,
 ) -> None:
     actual = set(raw)
     missing = sorted(expected - actual)
-    unknown = sorted(actual - expected)
+    unknown = sorted(actual - expected - (optional or set()))
     if missing:
         raise _fail(f"{context} is missing required key(s): {', '.join(missing)}.")
     if unknown:
@@ -146,12 +148,16 @@ def _validate_keys(
 
 
 def _section(
-    raw: Mapping[str, Any], name: str, expected: set[str]
+    raw: Mapping[str, Any],
+    name: str,
+    expected: set[str],
+    *,
+    optional: set[str] | None = None,
 ) -> Mapping[str, Any]:
     value = raw[name]
     if not isinstance(value, Mapping):
         raise _fail(f"[{name}] must be a TOML table.")
-    _validate_keys(value, context=f"[{name}]", expected=expected)
+    _validate_keys(value, context=f"[{name}]", expected=expected, optional=optional)
     return value
 
 
@@ -326,6 +332,7 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
             "simple_returns_units",
             "instruments",
         },
+        optional={"market_calendar_id"},
     )
     upstream = UpstreamConfig(
         project=_string(upstream_raw, "project", "upstream"),
@@ -338,10 +345,17 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
         ),
         simple_returns_units=_string(upstream_raw, "simple_returns_units", "upstream"),
         instruments=_string_sequence(upstream_raw, "instruments", "upstream"),
+        market_calendar_id=(
+            _string(upstream_raw, "market_calendar_id", "upstream")
+            if "market_calendar_id" in upstream_raw
+            else None
+        ),
     )
+    if upstream.market_calendar_id not in (None, "XNYS"):
+        raise _fail("upstream.market_calendar_id must be XNYS when supplied.")
     expected_upstream_identity = (
         "historical-asset-risk-engine",
-        "0.1.1",
+        "0.2.1",
         "historical-asset-risk/simple-returns",
         "1.experimental",
         "decimal_return_per_observation",
@@ -356,7 +370,7 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
     if actual_upstream_identity != expected_upstream_identity:
         raise _fail(
             "The [upstream] project and artifact identity must match the "
-            "historical-asset-risk v0.1 public contract."
+            "historical-asset-risk v0.2.1 public contract."
         )
     periods_raw = _section(
         raw,
