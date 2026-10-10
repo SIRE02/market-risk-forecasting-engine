@@ -2,7 +2,12 @@
 
 This file records user-visible changes for each published package version.
 
-## Unreleased
+## 0.2.0 - 2026-10-10
+
+Requires `historical-asset-risk-engine` v0.2.1. Upstream runs and
+configurations for v0.1.1, and the series identifier `ALL`, are now rejected.
+Bootstrap, gap-handling, and conditional-coverage changes alter evaluation
+results, so compare runs only within one package version.
 
 - Include shorter EWMA/GARCH windows in realization coverage, suppress
   bootstrap inference with insufficient date blocks, and preserve original

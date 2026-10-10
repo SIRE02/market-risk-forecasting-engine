@@ -13,7 +13,7 @@ from market_risk_forecasting.upstream import (
     load_upstream_run,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "ForecastConfig",
