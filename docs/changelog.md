@@ -11,6 +11,17 @@ This file records user-visible changes for each published package version.
 - Preserve cross-asset dependence and missing dates in moving-block bootstrap
   comparisons; exclude gaps from independence transitions and exception clusters.
 - Advance GARCH states through observations between configured periods.
+- Draw report interval bars from bootstrap endpoints so intervals that exclude
+  the point estimate no longer crash figure generation.
+- Reject `ALL` as an instrument or proxy identifier because it labels pooled
+  results.
+- Correct the custom-asset README example's acquisition `output_dir` for
+  config-relative path resolution.
+- Keep failed benchmark dates and series without valid benchmarks in the
+  rolling model-advantage panel so rolling windows never bridge missing
+  sessions.
+- Reconcile upstream returns with HARE's hash-verified adjusted prices when
+  `adjusted_prices.csv` is present.
 - Validate the declared XNYS session calendar for the real-data study and
   exercise HARE's actual offline output contract in integration tests.
 - Pin `historical-asset-risk-engine` to the v0.2.1 release commit and require

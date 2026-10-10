@@ -12,7 +12,10 @@ from historical_asset_risk.cli import run_analysis
 from historical_asset_risk.config import AnalysisConfig
 
 from market_risk_forecasting.config import load_config
-from market_risk_forecasting.errors import UpstreamQualityGateFailedError
+from market_risk_forecasting.errors import (
+    UpstreamManifestInvalidError,
+    UpstreamQualityGateFailedError,
+)
 from market_risk_forecasting.upstream import (
     UpstreamCoverageRequirements,
     load_upstream_run,
@@ -98,3 +101,62 @@ def test_real_hare_returns_only_run_and_declared_session_calendar(
         pd.testing.assert_frame_equal(
             run.returns, prices.pct_change(fill_method=None).iloc[1:]
         )
+
+
+@pytest.mark.parametrize(
+    ("tampered", "error", "match"),
+    [
+        ("returns", UpstreamQualityGateFailedError, "does not reconcile"),
+        ("prices", UpstreamQualityGateFailedError, "adjusted_prices.csv failed"),
+        ("hash", UpstreamManifestInvalidError, "price_content_hash"),
+    ],
+)
+def test_returns_must_reconcile_with_hash_verified_prices(
+    project_root: Path,
+    tmp_path: Path,
+    tampered: str,
+    error: type[Exception],
+    match: str,
+) -> None:
+    dates = pd.bdate_range("2024-01-02", periods=8)
+    source = tmp_path / "prices.csv"
+    pd.DataFrame(
+        [
+            {
+                "date": day.date().isoformat(),
+                "ticker": ticker,
+                "adjusted_close": 100 + position + offset,
+            }
+            for offset, ticker in enumerate(("SPY", "IEF", "GLD"))
+            for position, day in enumerate(dates)
+        ]
+    ).to_csv(source, index=False)
+    run_dir = tmp_path / "hare-run"
+    run_analysis(
+        AnalysisConfig(
+            provider="csv",
+            csv_path=source,
+            tickers=("SPY", "IEF", "GLD"),
+            start_date="2024-01-02",
+            end_date="2024-01-12",
+            rolling_window=3,
+            output_dir=run_dir,
+        )
+    )
+    expected = load_config(project_root / "config.example.toml").upstream
+    coverage = UpstreamCoverageRequirements(6, date(2024, 1, 2), date(2024, 1, 10))
+    load_upstream_run(run_dir, expected, coverage)
+
+    if tampered == "hash":
+        manifest_path = run_dir / "run_manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        del manifest["data_source"]["price_content_hash"]
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    else:
+        name = "simple_returns.csv" if tampered == "returns" else "adjusted_prices.csv"
+        frame = pd.read_csv(run_dir / name, float_precision="round_trip")
+        frame.loc[2, "SPY"] = 0.75 if tampered == "returns" else 175.0
+        frame.to_csv(run_dir / name, index=False)
+
+    with pytest.raises(error, match=match):
+        load_upstream_run(run_dir, expected, coverage)

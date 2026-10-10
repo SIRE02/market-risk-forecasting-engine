@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
+from market_risk_forecasting.config import POOLED_SERIES_ID
 from market_risk_forecasting.reporting import (
+    _CANDIDATES,
     _calibration_summary,
     _coverage_rows,
+    _interval_error_bars,
+    _plot_comparison,
+    _plot_series_comparisons,
     _report_identity,
     _rolling_loss_differences,
 )
@@ -193,3 +201,107 @@ def test_calibration_summary_separates_rejections_from_non_rejections() -> None:
         "Historical simulation, EWMA, and Gaussian GARCH(1,1) had at least one "
         "rejection" in summary
     )
+
+
+def test_interval_figures_accept_intervals_that_exclude_the_estimate(
+    tmp_path: Path,
+) -> None:
+    # Percentile bootstrap intervals need not contain the point estimate.
+    bootstrap = pd.DataFrame(
+        [
+            {
+                "period": "test",
+                "series_id": series_id,
+                "metric": metric,
+                "model_id": model_id,
+                "value": 5.0,
+                "interval_lower": 0.0,
+                "interval_upper": 2.5,
+            }
+            for series_id in (POOLED_SERIES_ID, "SPY", "GLD")
+            for metric in ("qlike", "pinball_loss_0_05")
+            for model_id in _CANDIDATES
+        ]
+    )
+
+    _plot_comparison(
+        bootstrap,
+        metric="qlike",
+        title="QLIKE",
+        scale=1.0,
+        ylabel="Loss difference",
+        path=tmp_path / "comparison.png",
+    )
+    _plot_series_comparisons(bootstrap, tmp_path / "series.png")
+
+    assert (tmp_path / "comparison.png").stat().st_size > 0
+    assert (tmp_path / "series.png").stat().st_size > 0
+    centers, half_widths = _interval_error_bars(np.array([0.0]), np.array([2.5]))
+    assert centers.tolist() == [1.25]
+    assert half_widths.tolist() == [1.25]
+
+
+def _rolling_inputs(
+    dates: pd.DatetimeIndex,
+    series_ids: tuple[str, ...],
+    benchmark_failed: set[tuple[str, pd.Timestamp]],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    forecasts: list[dict[str, object]] = []
+    realizations: list[dict[str, object]] = []
+    for target_date in dates:
+        for series_id in series_ids:
+            key = {
+                "series_id": series_id,
+                "forecast_origin": target_date - pd.offsets.BDay(1),
+                "target_date": target_date,
+            }
+            realizations.append({**key, "simple_return": -0.10})
+            for model_id, variance, quantile in (
+                ("historical_variance", 0.04, np.nan),
+                ("historical_simulation", np.nan, -0.20),
+                ("ewma", 0.01, -0.10),
+                ("garch_1_1_gaussian", 0.01, -0.10),
+                ("garch_1_1_student_t", 0.01, -0.10),
+            ):
+                failed = (
+                    model_id == "historical_variance"
+                    and (series_id, target_date) in benchmark_failed
+                )
+                forecasts.append(
+                    {
+                        **key,
+                        "model_id": model_id,
+                        "status": "failed" if failed else "ok",
+                        "variance": np.nan if failed else variance,
+                        "return_quantile_0_05": quantile,
+                    }
+                )
+    return pd.DataFrame(forecasts), pd.DataFrame(realizations)
+
+
+def _ewma_rolling_qlike(forecasts: pd.DataFrame, realizations: pd.DataFrame) -> Any:
+    result = _rolling_loss_differences(forecasts, realizations, window=2)
+    return result.loc[
+        result["metric"].eq("qlike") & result["model_id"].eq("ewma")
+    ].reset_index(drop=True)
+
+
+def test_rolling_loss_differences_do_not_bridge_failed_benchmark_dates() -> None:
+    dates = pd.date_range("2025-01-02", periods=6, freq="B")
+    failed = {(series_id, dates[i]) for series_id in ("A", "B") for i in (2, 3, 4)}
+
+    ewma_qlike = _ewma_rolling_qlike(*_rolling_inputs(dates, ("A", "B"), failed))
+
+    assert len(ewma_qlike) == len(dates)
+    assert ewma_qlike["rolling_difference"].iloc[1] < 0.0
+    assert ewma_qlike["rolling_difference"].iloc[2:].isna().all()
+
+
+def test_rolling_loss_differences_keep_series_without_valid_benchmarks() -> None:
+    dates = pd.date_range("2025-01-02", periods=4, freq="B")
+    failed = {("B", target_date) for target_date in dates}
+
+    ewma_qlike = _ewma_rolling_qlike(*_rolling_inputs(dates, ("A", "B"), failed))
+
+    assert len(ewma_qlike) == len(dates)
+    assert ewma_qlike["rolling_difference"].isna().all()

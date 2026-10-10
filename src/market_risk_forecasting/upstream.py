@@ -414,6 +414,57 @@ def _validate_calendar(
         ) from exc
 
 
+def _reconcile_with_prices(
+    run_dir: Path,
+    frame: pd.DataFrame,
+    manifest: Mapping[str, Any],
+) -> None:
+    """Tie loaded returns to HARE's hash-verified adjusted prices when present.
+
+    HARE records a content hash for ``adjusted_prices.csv`` but none for
+    ``simple_returns.csv``, so returns are only producer-evidenced through the
+    prices. Returns-only runs, such as the synthetic fixture, have no prices to
+    reconcile against.
+    """
+    prices_path = run_dir / "adjusted_prices.csv"
+    if not prices_path.is_file():
+        return
+    data_source = manifest.get("data_source")
+    if not isinstance(data_source, Mapping) or not isinstance(
+        data_source.get("price_content_hash"), str
+    ):
+        raise UpstreamManifestInvalidError(
+            "The upstream manifest must record data_source.price_content_hash "
+            "when adjusted_prices.csv is present."
+        )
+    from historical_asset_risk.artifacts import load_artifact
+    from historical_asset_risk.returns import (  # type: ignore[import-untyped]
+        calculate_simple_returns,
+    )
+
+    try:
+        prices = load_artifact(prices_path, run_dir / "run_manifest.json")
+        expected = calculate_simple_returns(prices)
+    except Exception as exc:
+        raise UpstreamQualityGateFailedError(
+            f"Upstream adjusted_prices.csv failed validation: {exc}"
+        ) from exc
+    if (
+        not expected.index.equals(frame.index)
+        or list(expected.columns) != list(frame.columns)
+        or not np.allclose(
+            frame.to_numpy(dtype=float),
+            expected.to_numpy(dtype=float),
+            rtol=1e-9,
+            atol=1e-12,
+        )
+    ):
+        raise UpstreamQualityGateFailedError(
+            "simple_returns.csv does not reconcile with returns recomputed from "
+            "the hash-verified adjusted_prices.csv."
+        )
+
+
 def load_upstream_run(
     input_run_dir: Path,
     expected: UpstreamConfig,
@@ -438,6 +489,7 @@ def load_upstream_run(
         quality=quality,
         coverage=coverage,
     )
+    _reconcile_with_prices(run_dir, frame, manifest)
     _validate_calendar(frame, quality, expected.market_calendar_id)
     checksums = {name: sha256_file(run_dir / name) for name in sorted(_REQUIRED_FILES)}
     if any(

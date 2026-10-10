@@ -18,6 +18,7 @@ import pandas as pd
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
+from market_risk_forecasting.config import POOLED_SERIES_ID
 from market_risk_forecasting.errors import (
     ArtifactReconciliationFailedError,
     OutputCollisionError,
@@ -757,7 +758,7 @@ def _comparison_rows(
 ) -> pd.DataFrame:
     selected = bootstrap.loc[
         bootstrap["period"].eq(period)
-        & bootstrap["series_id"].eq("ALL")
+        & bootstrap["series_id"].eq(POOLED_SERIES_ID)
         & bootstrap["metric"].eq(metric)
         & bootstrap["model_id"].isin(_CANDIDATES)
     ].copy()
@@ -898,7 +899,8 @@ def _comparison_markdown(frame: pd.DataFrame, interval_label: str) -> str:
 
 def _availability_rows(availability: pd.DataFrame) -> list[tuple[str, ...]]:
     selected = availability.loc[
-        availability["period"].eq("test") & availability["series_id"].eq("ALL")
+        availability["period"].eq("test")
+        & availability["series_id"].eq(POOLED_SERIES_ID)
     ]
     pivot = selected.pivot(
         index="model_id",
@@ -1012,10 +1014,11 @@ def _plot_comparison(
     figure, axis = plt.subplots(figsize=(8.5, 4.8))
     positions = range(len(frame))
     axis.bar(positions, values, color="#315b7d")
+    centers, half_widths = _interval_error_bars(lower, upper)
     axis.errorbar(
         list(positions),
-        values,
-        yerr=[values - lower, upper - values],
+        centers,
+        yerr=half_widths,
         fmt="none",
         ecolor="#171717",
         capsize=5,
@@ -1037,7 +1040,8 @@ def _plot_comparison(
 
 def _plot_availability(availability: pd.DataFrame, path: Path) -> None:
     selected = availability.loc[
-        availability["period"].eq("test") & availability["series_id"].eq("ALL")
+        availability["period"].eq("test")
+        & availability["series_id"].eq(POOLED_SERIES_ID)
     ]
     pivot = selected.pivot(
         index="model_id",
@@ -1296,9 +1300,15 @@ def _rolling_loss_differences(
     )
     for metric, benchmark_id, value_column in specifications:
         benchmark = _valid_model_values(forecasts, benchmark_id, value_column)
-        expected_series = set(benchmark["series_id"].astype(str))
+        # Take the date grid and series panel from every eligible benchmark
+        # record, failed ones included, so failures stay as gaps in the window
+        # instead of being closed up or dropping a series from the panel.
+        eligible = forecasts.loc[
+            forecasts["model_id"].eq(benchmark_id), ["series_id", "target_date"]
+        ]
+        expected_series = set(eligible["series_id"].astype(str))
         canonical_dates = pd.DatetimeIndex(
-            pd.to_datetime(benchmark["target_date"].drop_duplicates()).sort_values()
+            pd.to_datetime(eligible["target_date"].drop_duplicates()).sort_values()
         )
         for model_id in _CANDIDATES:
             candidate = _valid_model_values(forecasts, model_id, value_column)
@@ -1467,7 +1477,7 @@ def _plot_series_comparisons(bootstrap: pd.DataFrame, path: Path) -> None:
     )
     selected = bootstrap.loc[
         bootstrap["period"].eq("test")
-        & bootstrap["series_id"].ne("ALL")
+        & bootstrap["series_id"].ne(POOLED_SERIES_ID)
         & bootstrap["model_id"].isin(_CANDIDATES)
     ].copy()
     series_ids = sorted(str(value) for value in selected["series_id"].unique())
@@ -1507,15 +1517,22 @@ def _plot_series_comparisons(bootstrap: pd.DataFrame, path: Path) -> None:
                 ]
             )
             y_positions = base_positions + offsets[model_id]
+            centers, half_widths = _interval_error_bars(lower, upper)
             axis.errorbar(
+                centers,
+                y_positions,
+                xerr=half_widths,
+                fmt="none",
+                ecolor=_MODEL_COLORS[model_id],
+                capsize=3,
+                linewidth=1.1,
+            )
+            axis.plot(
                 values,
                 y_positions,
-                xerr=[values - lower, upper - values],
-                fmt="o",
+                "o",
                 color=_MODEL_COLORS[model_id],
-                capsize=3,
                 markersize=5,
-                linewidth=1.1,
                 label=_MODEL_LABELS[model_id],
             )
         axis.axvline(0.0, color="#7a2525", linewidth=1.0)
@@ -1582,6 +1599,20 @@ def _apply_period_context(
                 rotation=90 if short_period else 0,
             )
     axis.set_xlim(calendar["target_date"].min(), calendar["target_date"].max())
+
+
+def _interval_error_bars(
+    lower: np.ndarray[Any, np.dtype[np.float64]],
+    upper: np.ndarray[Any, np.dtype[np.float64]],
+) -> tuple[
+    np.ndarray[Any, np.dtype[np.float64]], np.ndarray[Any, np.dtype[np.float64]]
+]:
+    """Return error-bar centers and half-widths spanning each interval.
+
+    Percentile bootstrap intervals need not contain the point estimate, so bars
+    are drawn from the interval endpoints rather than measured from the estimate.
+    """
+    return (lower + upper) / 2.0, (upper - lower) / 2.0
 
 
 def _valid_model_values(

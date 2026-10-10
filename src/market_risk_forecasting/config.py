@@ -14,6 +14,10 @@ from market_risk_forecasting.errors import ConfigInvalidError
 
 type QuantileMethod = Literal["linear", "lower", "higher", "nearest", "midpoint"]
 
+# Evaluation tables label pooled results with this series identifier, so no
+# instrument or proxy may use it.
+POOLED_SERIES_ID = "ALL"
+
 _TOP_LEVEL_KEYS = {
     "experiment",
     "upstream",
@@ -268,6 +272,11 @@ def _portfolio_proxy(
             "[portfolio_proxy] is missing required key(s): " + ", ".join(missing) + "."
         )
     series_id = _string(raw, "series_id", "portfolio_proxy")
+    if series_id.upper() == POOLED_SERIES_ID:
+        raise _fail(
+            f"portfolio_proxy.series_id must not be {POOLED_SERIES_ID!r}, which is "
+            "reserved for results pooled across series."
+        )
     weights_raw = raw["weights"]
     if not isinstance(weights_raw, Mapping):
         raise _fail("portfolio_proxy.weights must be a TOML table.")
@@ -353,6 +362,11 @@ def _build_config(raw: Mapping[str, Any]) -> ForecastConfig:
     )
     if upstream.market_calendar_id not in (None, "XNYS"):
         raise _fail("upstream.market_calendar_id must be XNYS when supplied.")
+    if POOLED_SERIES_ID in upstream.instruments:
+        raise _fail(
+            f"upstream.instruments must not contain {POOLED_SERIES_ID!r}, which is "
+            "reserved for results pooled across series."
+        )
     expected_upstream_identity = (
         "historical-asset-risk-engine",
         "0.2.1",
@@ -541,6 +555,7 @@ def load_config(path: str | Path) -> ForecastConfig:
 
 
 __all__ = [
+    "POOLED_SERIES_ID",
     "EvaluationConfig",
     "ExperimentConfig",
     "ForecastConfig",

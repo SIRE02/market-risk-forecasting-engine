@@ -226,11 +226,15 @@ provider = "yahoo"
 tickers = ["NVDA", "AMZN", "GLD", "TLT"]
 start_date = "2010-01-01"
 end_date = "2026-01-01"
-output_dir = "data/upstream/nvda-amzn-gld-tlt-2010-2025"
+output_dir = "../../data/upstream/nvda-amzn-gld-tlt-2010-2025"
 ```
 
-In the forecasting configuration, use the identical instrument order and
-directory:
+HARE resolves `output_dir` relative to the acquisition config's folder, so the
+`../../` prefix assumes the file sits in `configs/upstream/`, as in the
+checked-in pair.
+
+In the forecasting configuration, use the identical instrument order and the
+same directory, written relative to the working directory:
 
 ```toml
 [experiment]

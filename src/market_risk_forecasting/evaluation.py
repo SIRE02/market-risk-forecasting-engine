@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import chi2
 
-from market_risk_forecasting.config import ForecastConfig
+from market_risk_forecasting.config import POOLED_SERIES_ID, ForecastConfig
 from market_risk_forecasting.errors import (
     InsufficientHistoryError,
     OutputCollisionError,
@@ -29,7 +29,7 @@ from market_risk_forecasting.models.historical import (
 )
 
 EVALUATION_PERIODS = ("validation", "test")
-ALL_SERIES_ID = "ALL"
+ALL_SERIES_ID = POOLED_SERIES_ID
 
 VARIANCE_MODEL_IDS = (
     HISTORICAL_VARIANCE_MODEL_ID,

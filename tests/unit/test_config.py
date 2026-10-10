@@ -143,6 +143,33 @@ def test_invalid_proxy_weight_sum_fails(project_root: Path, tmp_path: Path) -> N
         load_config(path)
 
 
+@pytest.mark.parametrize(
+    ("original", "replacement", "field"),
+    [
+        ('instruments = ["SPY",', 'instruments = ["ALL",', "upstream.instruments"),
+        (
+            'series_id = "FIXTURE_PROXY"',
+            'series_id = "all"',
+            "portfolio_proxy.series_id",
+        ),
+    ],
+)
+def test_pooled_series_identifier_is_reserved(
+    project_root: Path,
+    tmp_path: Path,
+    original: str,
+    replacement: str,
+    field: str,
+) -> None:
+    source = (project_root / "config.example.toml").read_text(encoding="utf-8")
+    assert original in source
+    path = tmp_path / "reserved.toml"
+    path.write_text(source.replace(original, replacement), encoding="utf-8")
+
+    with pytest.raises(ConfigInvalidError, match=f"{field}.*reserved"):
+        load_config(path)
+
+
 @pytest.mark.parametrize("package_version", ["0.1.1", "9.9.9"])
 def test_incompatible_upstream_identity_fails(
     project_root: Path, tmp_path: Path, package_version: str
